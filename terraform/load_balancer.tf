@@ -3,7 +3,7 @@
 # Security Group dedicato per l'Application Load Balancer
 resource "aws_security_group" "alb" {
   name        = "${var.project_name}-alb-sg"
-  description = "Security Group per l'Application Load Balancer pubblico"
+  description = "Security Group per Application Load Balancer pubblico"
   vpc_id      = aws_vpc.main.id
 
   # Ingress HTTP da Internet / CloudFront

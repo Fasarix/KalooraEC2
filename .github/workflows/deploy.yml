@@ -92,14 +92,26 @@ jobs:
         env:
           S3_BUCKET: ${{ secrets.S3_FRONTEND_BUCKET }}
         run: |
-          aws s3 sync frontend/ s3://${S3_BUCKET}/ --delete
+          if [ -z "$S3_BUCKET" ]; then
+            S3_BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, '${{ env.PROJECT_NAME }}-frontend')].Name" --output text | awk '{print $1}')
+          fi
+          if [ -z "$S3_BUCKET" ]; then
+            echo "❌ S3_FRONTEND_BUCKET non trovato su AWS."
+            exit 1
+          fi
+          echo "Sincronizzazione su s3://${S3_BUCKET}..."
+          aws s3 sync frontend/ s3://${S3_BUCKET}/ --exclude "Dockerfile" --exclude "nginx.conf" --delete
 
       - name: Invalidate CloudFront Cache
         env:
           CLOUDFRONT_DIST_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
-          if [ -n "$CLOUDFRONT_DIST_ID" ]; then
-            aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DIST_ID --paths "/*"
+          if [ -z "$CLOUDFRONT_DIST_ID" ]; then
+            CLOUDFRONT_DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?contains(Origins.Items[0].Id, '${{ env.PROJECT_NAME }}') || contains(Comment, '${{ env.PROJECT_NAME }}')].Id" --output text | awk '{print $1}')
+          fi
+          if [ -n "$CLOUDFRONT_DIST_ID" ] && [ "$CLOUDFRONT_DIST_ID" != "None" ]; then
+            echo "Invalidazione CloudFront ${CLOUDFRONT_DIST_ID}..."
+            aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DIST_ID" --paths "/*"
           fi
 
   # ── FASE 4: Deploy Kubernetes Manifests via AWS SSM ─────────────────────────
@@ -124,7 +136,10 @@ jobs:
           CONTROL_PLANE_ID: ${{ secrets.CONTROL_PLANE_INSTANCE_ID }}
         run: |
           if [ -z "$CONTROL_PLANE_ID" ]; then
-            echo "❌ CONTROL_PLANE_INSTANCE_ID secret is required for AWS SSM deployment."
+            CONTROL_PLANE_ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=${{ env.PROJECT_NAME }}-control-plane-1" "Name=instance-state-name,Values=running" --query "Reservations[0].Instances[0].InstanceId" --output text 2>/dev/null || true)
+          fi
+          if [ -z "$CONTROL_PLANE_ID" ] || [ "$CONTROL_PLANE_ID" = "None" ]; then
+            echo "❌ Control Plane EC2 instance non trovata."
             exit 1
           fi
 

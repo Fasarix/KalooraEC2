@@ -29,9 +29,9 @@ variable "environment" {
 # ── EC2 & Kubernetes Configuration ─────────────────────────────────────────────
 
 variable "instance_type" {
-  description = "Tipo di istanza EC2 per il cluster Kubernetes (kubeadm richiede >= 2 vCPU e 2GB RAM)"
+  description = "Tipo di istanza EC2 per il cluster Kubernetes (t3.micro eleggibile Free Tier)"
   type        = string
-  default     = "t3.medium"
+  default     = "t3.micro"
 }
 
 variable "worker_count" {

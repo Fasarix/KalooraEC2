@@ -32,7 +32,7 @@ resource "random_string" "state_suffix" {
 # S3 Bucket per il Terraform State remoto cifrato
 resource "aws_s3_bucket" "tf_state" {
   bucket        = "${var.project_name}-tf-state-${random_string.state_suffix.result}"
-  force_destroy = false
+  force_destroy = true
 
   tags = {
     Name        = "${var.project_name}-tf-state"

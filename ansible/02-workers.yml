@@ -21,12 +21,13 @@
       when: not already_joined.stat.exists
 
     - name: Esegui il join al cluster Kubernetes
-      command: "{{ join_command }}"
+      command: "{{ join_command }} --ignore-preflight-errors=NumCPU,Mem,Swap"
       when: not already_joined.stat.exists
 
 # ── Verifica dal Control Plane ─────────────────────────────────────────────
 - name: Verifica che tutti i nodi risultino in stato Ready
   hosts: control_plane[0]
+  gather_facts: false
   become: false
 
   tasks:

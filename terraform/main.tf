@@ -18,13 +18,13 @@ terraform {
   # Configurazione Remote Backend S3 + DynamoDB State Locking
   # 1. Esegui 'terraform apply' nella cartella 'terraform/backend_setup/' per creare il bucket S3 e la tabella DynamoDB
   # 2. Scommenta e popola il blocco seguente con il nome del bucket creato:
-  # backend "s3" {
-  #   bucket         = "kaloora-tf-state-xxxxxx"
-  #   key            = "cluster/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   encrypt        = true
-  #   dynamodb_table = "kaloora-tf-locks"
-  # }
+   backend "s3" {
+     bucket         = "kaloora-tf-state-vvfef7"
+     key            = "cluster/terraform.tfstate"
+     region         = "us-east-1"
+     encrypt        = true
+     dynamodb_table = "kaloora-tf-locks"
+   }
 }
 
 

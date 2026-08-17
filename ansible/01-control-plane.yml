@@ -20,6 +20,7 @@
         --pod-network-cidr={{ pod_network_cidr }}
         --control-plane-endpoint={{ ansible_default_ipv4.address }}
         --apiserver-cert-extra-sans={{ ansible_host }},{{ ansible_default_ipv4.address }}
+        --ignore-preflight-errors=NumCPU,Mem,Swap
       when: not kubeadm_init_done.stat.exists
       register: kubeadm_init_output
 

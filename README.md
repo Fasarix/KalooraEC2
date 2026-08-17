@@ -98,9 +98,7 @@ KalooraAWS/
 │   ├── cloudwatch.tf         # Allarmi CloudWatch per EC2, RDS e ALB
 │   ├── variables.tf          # Parametrizzazione ambiente, opzioni SSH/SSM e credenziali
 │   ├── outputs.tf            # Endpoint, URI e comandi di connessione AWS SSM Session Manager
-
-│   ├── dev.tfvars            # Profilo di dimensionamento economico/dev (t3.medium, 2 worker)
-│   └── prod.tfvars           # Profilo di dimensionamento produzione (t3.large, 3 worker)
+│   └── terraform.tfvars      # Variabili di configurazione (100% Free Tier Compatible)
 ├── deploy-aws.sh             # Script di deploy applicativo end-to-end su AWS
 ├── LICENSE                   # Licenza MIT
 └── README.md                 # Documentazione del progetto
@@ -147,7 +145,7 @@ Il deployment dell'infrastruttura e dei microservizi si articola in **3 fasi aut
 
 3. Esegui il deployment delle risorse su AWS:
    ```bash
-   terraform apply -var-file="dev.tfvars" -auto-approve
+   terraform apply -auto-approve
    ```
 
 *Terraform creerà la VPC, le subnet Multi-AZ, i Security Group, le istanze EC2 con IMDSv2, i ruoli IAM, l'ALB, RDS PostgreSQL cifrato, DynamoDB on-demand, SQS con DLQ, ElastiCache Redis, S3, CloudFront OAC e genererà automaticamente `ansible/hosts.ini` e `k8s/secret.yaml`.*
@@ -230,7 +228,7 @@ Per distruggere tutte le risorse allocate su AWS ed azzerare i costi:
 
 ```bash
 cd terraform
-terraform destroy -var-file="dev.tfvars" -auto-approve
+terraform destroy -auto-approve
 ```
 
 ---

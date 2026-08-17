@@ -84,69 +84,78 @@ fi
 # Modalità di connessione (SSM Session Manager Proxy o SSH diretto)
 if [ -n "$CONTROL_PLANE_ID" ] && command -v aws >/dev/null 2>&1; then
   echo "  -> Connessione tramite AWS Systems Manager (SSM)..."
-  SSH_OPTS="-o ProxyCommand=\"aws ssm start-session --target ${CONTROL_PLANE_ID} --document-name AWS-StartSSHSession --parameters portNumber=%p --region ${AWS_REGION}\" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  SSH_OPTS="-o ProxyCommand=\"aws ssm start-session --target ${CONTROL_PLANE_ID} --document-name AWS-StartSSHSession --parameters portNumber=%p --region ${AWS_REGION}\" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 -o ServerAliveInterval=15"
   if [ -f "$SSH_KEY" ]; then
     SSH_OPTS="${SSH_OPTS} -i ${SSH_KEY}"
   fi
   TARGET_HOST="ubuntu@${CONTROL_PLANE_ID}"
 else
   echo "  -> Connessione tramite SSH diretto su ${CONTROL_PLANE_IP}..."
-  SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 -o ServerAliveInterval=15"
   if [ -f "$SSH_KEY" ]; then
     SSH_OPTS="${SSH_OPTS} -i ${SSH_KEY}"
   fi
   TARGET_HOST="ubuntu@${CONTROL_PLANE_IP}"
 fi
 
-eval ssh ${SSH_OPTS} "${TARGET_HOST}" "mkdir -p /home/ubuntu/k8s"
-eval scp ${SSH_OPTS} -r k8s/* "${TARGET_HOST}:/home/ubuntu/k8s/"
+echo "  -> Trasferimento manifesti in corso..."
+tar -czf - -C k8s . | eval ssh ${SSH_OPTS} "${TARGET_HOST}" "\"mkdir -p /home/ubuntu/k8s && tar -xzf - -C /home/ubuntu/k8s\""
+
 
 # ── FASE 4: Applicazione dei Manifesti Kubernetes ─────────────────────────────
 echo ""
 echo "=== [4/4] Applicazione dei manifesti Kubernetes dei Microservizi ==="
-eval ssh ${SSH_OPTS} "${TARGET_HOST}" "
-  set -e
-  export KUBECONFIG=/home/ubuntu/.kube/config
-  
-  echo '1. Applicazione Namespace, LimitRange, Quota e NetworkPolicies...'
-  kubectl apply -f /home/ubuntu/k8s/namespace.yaml
-  kubectl apply -f /home/ubuntu/k8s/network-policy.yaml
-  
-  echo '2. Applicazione Secrets...'
-  if [ -f /home/ubuntu/k8s/secret.yaml ]; then
-    kubectl apply -f /home/ubuntu/k8s/secret.yaml
-  else
-    echo '❌ k8s/secret.yaml non trovato sul Control Plane!'
-    exit 1
-  fi
+eval ssh ${SSH_OPTS} "${TARGET_HOST}" "bash -s \"$USER_ECR\" \"$DIARY_ECR\" \"$ANALYTICS_ECR\"" << 'EOF'
+set -e
+export KUBECONFIG=/home/ubuntu/.kube/config
 
-  echo '3. Aggiornamento immagini ECR nei manifesti (se disponibili)...'
-  if [ -n \"$USER_ECR\" ]; then
-    sed -i \"s|image: user-service:v1.0.0|image: ${USER_ECR}:v1.0.0|g\" /home/ubuntu/k8s/user-service.yaml || true
-    sed -i \"s|image: diary-service:v1.0.0|image: ${DIARY_ECR}:v1.0.0|g\" /home/ubuntu/k8s/diary-service.yaml || true
-    sed -i \"s|image: analytics-service:v1.0.0|image: ${ANALYTICS_ECR}:v1.0.0|g\" /home/ubuntu/k8s/analytics-service.yaml || true
-  fi
-  
-  echo '4. Installazione dichiarativa Ingress Nginx Controller (NodePort 30080 pre-configurata)...'
-  kubectl apply -f /home/ubuntu/k8s/ingress-nginx.yaml
-  kubectl delete ValidatingWebhookConfiguration ingress-nginx-admission --ignore-not-found || true
+USER_ECR="$1"
+DIARY_ECR="$2"
+ANALYTICS_ECR="$3"
 
-  echo '   -> Attesa readiness di Ingress Nginx Controller...'
-  kubectl wait --namespace ingress-nginx \
-    --for=condition=ready pod \
-    --selector=app.kubernetes.io/component=controller \
-    --timeout=120s || true
-  
-  echo '5. Applicazione Microservizi Backend, HPA/PDB e Ingress...'
-  kubectl apply -f /home/ubuntu/k8s/user-service.yaml
-  kubectl apply -f /home/ubuntu/k8s/diary-service.yaml
-  kubectl apply -f /home/ubuntu/k8s/analytics-service.yaml
-  kubectl apply -f /home/ubuntu/k8s/hpa-pdb.yaml || true
-  kubectl apply -f /home/ubuntu/k8s/ingress.yaml
+if [ -n "$USER_ECR" ]; then
+  echo "  -> Aggiornamento immagini ECR nei manifesti..."
+  sed -i "s|image: user-service:v1.0.0|image: ${USER_ECR}:v1.0.0|g" /home/ubuntu/k8s/user-service.yaml || true
+  sed -i "s|image: diary-service:v1.0.0|image: ${DIARY_ECR}:v1.0.0|g" /home/ubuntu/k8s/diary-service.yaml || true
+  sed -i "s|image: analytics-service:v1.0.0|image: ${ANALYTICS_ECR}:v1.0.0|g" /home/ubuntu/k8s/analytics-service.yaml || true
+fi
 
-  echo '6. Rollout restart per caricare le nuove configurazioni...'
-  kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora || true
-"
+echo '1. Applicazione Namespace, LimitRange, Quota e NetworkPolicies...'
+kubectl apply -f /home/ubuntu/k8s/namespace.yaml
+kubectl apply -f /home/ubuntu/k8s/network-policy.yaml
+
+echo '2. Applicazione Secrets...'
+if [ -f /home/ubuntu/k8s/secret.yaml ]; then
+  kubectl apply -f /home/ubuntu/k8s/secret.yaml
+else
+  echo '❌ k8s/secret.yaml non trovato sul Control Plane!'
+  exit 1
+fi
+
+echo '3. Installazione dichiarativa Ingress Nginx Controller (NodePort 30080)...'
+kubectl apply -f /home/ubuntu/k8s/ingress-nginx.yaml
+kubectl delete ValidatingWebhookConfiguration ingress-nginx-admission --ignore-not-found || true
+
+echo '   -> Attesa readiness di Ingress Nginx Controller...'
+kubectl wait --namespace ingress-nginx \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller \
+  --timeout=120s || true
+
+echo '4. Applicazione Microservizi Backend, HPA/PDB e Ingress...'
+kubectl apply -f /home/ubuntu/k8s/user-service.yaml
+kubectl apply -f /home/ubuntu/k8s/diary-service.yaml
+kubectl apply -f /home/ubuntu/k8s/analytics-service.yaml
+kubectl apply -f /home/ubuntu/k8s/hpa-pdb.yaml || true
+kubectl apply -f /home/ubuntu/k8s/ingress.yaml
+
+echo '5. Rollout restart per caricare le nuove configurazioni...'
+kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora || true
+
+echo '6. Stato dei Pod distribuiti:'
+kubectl get pods -n kaloora -o wide
+kubectl get pods -n ingress-nginx
+EOF
 
 echo ""
 echo "=========================================================================="
