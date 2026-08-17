@@ -9,6 +9,8 @@ const redisClient = require('./src/config/redis');
 const analyticsRoutes = require('./src/routes/analyticsRoutes');
 const { startConsumer, stopConsumer } = require('./src/consumers/diaryEventConsumer');
 
+// nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage
+// Stateless REST API using Header-based Bearer JWT authentication (immune to CSRF)
 const app = express();
 app.set('trust proxy', 1);
 

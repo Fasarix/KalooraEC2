@@ -13,6 +13,8 @@ const authRoutes = require('./src/routes/authRoutes');
 const userRoutes = require('./src/routes/userRoutes');
 const weightRoutes = require('./src/routes/weightRoutes');
 
+// nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage
+// Stateless REST API using Header-based Bearer JWT authentication (immune to CSRF)
 const app = express();
 app.set('trust proxy', 1);
 

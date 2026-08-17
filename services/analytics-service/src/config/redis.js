@@ -11,8 +11,7 @@ if (REDIS_PASSWORD) {
 
 if (REDIS_TLS || REDIS_URL.startsWith('rediss://')) {
   clientOptions.socket = {
-    tls: true,
-    rejectUnauthorized: false
+    tls: true
   };
 }
 

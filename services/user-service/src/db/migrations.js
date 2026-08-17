@@ -44,7 +44,7 @@ const initDb = async () => {
       console.log('Database tables "users" and "weight_history" initialized with indexes.');
       return;
     } catch (err) {
-      console.error(`Error initializing database (attempt ${i}/${maxRetries}):`, err.message);
+      console.error('Error initializing database (attempt %d/%d): %s', i, maxRetries, err.message);
       if (i === maxRetries) throw err;
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }

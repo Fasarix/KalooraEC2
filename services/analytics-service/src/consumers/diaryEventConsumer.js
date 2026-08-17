@@ -73,7 +73,7 @@ const startConsumer = async (redisClient) => {
           }
         }
       } catch (err) {
-        console.error(`Error in SQS poll loop (retrying in ${currentBackoffMs / 1000}s):`, err.message);
+        console.error('Error in SQS poll loop (retrying in %ds): %s', currentBackoffMs / 1000, err.message);
         await new Promise((resolve) => setTimeout(resolve, currentBackoffMs));
         // Exponential backoff up to 60s
         currentBackoffMs = Math.min(currentBackoffMs * 2, MAX_BACKOFF_MS);

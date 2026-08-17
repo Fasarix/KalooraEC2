@@ -39,6 +39,8 @@ signal.signal(signal.SIGTERM, handle_sigterm)
 signal.signal(signal.SIGINT, handle_sigterm)
 
 if __name__ == "__main__":
-    # Debug mode controlled by env var, defaults to False (prevents RCE via Werkzeug debugger)
+    # Debug mode and host controlled by env vars (prevents public binding during standalone testing)
     debug_mode = os.environ.get("FLASK_DEBUG", "False").lower() in ("true", "1")
-    app.run(host="0.0.0.0", port=PORT, debug=debug_mode)
+    host = os.environ.get("FLASK_HOST", "127.0.0.1")
+    # nosemgrep: python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host
+    app.run(host=host, port=PORT, debug=debug_mode)
