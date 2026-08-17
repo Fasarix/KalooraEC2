@@ -24,6 +24,8 @@ spec:
       labels:
         app: user-service
     spec:
+      imagePullSecrets:
+        - name: ecr-secret
       automountServiceAccountToken: false
       affinity:
         podAntiAffinity:
