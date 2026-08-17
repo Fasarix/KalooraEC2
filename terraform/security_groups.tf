@@ -85,6 +85,14 @@ resource "aws_security_group" "elasticache" {
     security_groups = [aws_security_group.k8s_nodes.id]
   }
 
+  egress {
+    description = "Allow all outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   tags = {
     Name = "${var.project_name}-elasticache-sg"
   }

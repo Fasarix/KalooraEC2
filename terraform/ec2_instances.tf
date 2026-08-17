@@ -24,7 +24,7 @@ resource "aws_instance" "control_plane" {
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 2
+    http_put_response_hop_limit = 3
   }
 
   root_block_device {
@@ -56,7 +56,7 @@ resource "aws_instance" "workers" {
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 2
+    http_put_response_hop_limit = 3
   }
 
   root_block_device {

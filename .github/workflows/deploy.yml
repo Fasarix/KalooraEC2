@@ -160,13 +160,38 @@ jobs:
             exit 1
           fi
 
-          echo "2. Invio comando di deploy al Control Plane ($CONTROL_PLANE_ID) via AWS SSM Send-Command..."
+          echo "2. Preparazione ed invio script di deploy al Control Plane ($CONTROL_PLANE_ID)..."
+          DEPLOY_SCRIPT=$(cat << EOF
+su - ubuntu -c '
+export KUBECONFIG=/home/ubuntu/.kube/config
+kubectl create namespace kaloora --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret docker-registry ecr-secret -n kaloora --docker-server=${ECR_REGISTRY} --docker-username=AWS --docker-password="${ECR_PASS}" --dry-run=client -o yaml | kubectl apply -f -
+kubectl patch serviceaccount default -n kaloora -p "{\"imagePullSecrets\": [{\"name\": \"ecr-secret\"}]}"
+kubectl create secret generic kaloora-secrets -n kaloora --from-literal=jwt-secret="${JWT_SEC}" --from-literal=postgres-host="${PG_HOST}" --from-literal=postgres-password="${DB_P}" --from-literal=postgres-user=postgres --from-literal=postgres-db=userdb --from-literal=redis-host="${REDIS_HOST}" --from-literal=redis-auth-token="${REDIS_TOKEN}" --from-literal=sqs-queue-url="${SQS_URL}" --from-literal=aws-region=${{ env.AWS_REGION }} --from-literal=aws-access-key-id="${{ secrets.AWS_ACCESS_KEY_ID }}" --from-literal=aws-secret-access-key="${{ secrets.AWS_SECRET_ACCESS_KEY }}" --from-literal=dynamodb-diary-table=kaloora-diary --from-literal=dynamodb-foods-table=kaloora-foods --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f /home/ubuntu/k8s/ingress-nginx.yaml
+kubectl apply -f /home/ubuntu/k8s/user-service.yaml
+kubectl apply -f /home/ubuntu/k8s/diary-service.yaml
+kubectl apply -f /home/ubuntu/k8s/analytics-service.yaml
+kubectl apply -f /home/ubuntu/k8s/hpa-pdb.yaml || true
+kubectl apply -f /home/ubuntu/k8s/ingress.yaml
+kubectl set image deployment/user-service user-service=${ECR_REGISTRY}/${{ env.PROJECT_NAME }}/user-service:v1.0.0 -n kaloora
+kubectl set image deployment/diary-service diary-service=${ECR_REGISTRY}/${{ env.PROJECT_NAME }}/diary-service:v1.0.0 -n kaloora
+kubectl set image deployment/analytics-service analytics-service=${ECR_REGISTRY}/${{ env.PROJECT_NAME }}/analytics-service:v1.0.0 -n kaloora
+kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora
+kubectl rollout status deployment diary-service -n kaloora --timeout=90s || true
+POD=$(kubectl get pods -n kaloora -l app=diary-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+if [ -n "$POD" ]; then
+  kubectl exec -n kaloora "$POD" -- python seeds/recipe_seed.py || true
+fi
+'
+EOF
+)
+          B64_SCRIPT=$(echo "$DEPLOY_SCRIPT" | base64 | tr -d '\n')
+
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$CONTROL_PLANE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters commands="[
-              \"su - ubuntu -c 'export KUBECONFIG=/home/ubuntu/.kube/config; kubectl create namespace kaloora --dry-run=client -o yaml | kubectl apply -f -; kubectl create secret docker-registry ecr-secret -n kaloora --docker-server=${ECR_REGISTRY} --docker-username=AWS --docker-password=\\\"$ECR_PASS\\\" --dry-run=client -o yaml | kubectl apply -f -; kubectl create secret generic kaloora-secrets -n kaloora --from-literal=jwt-secret=\\\"$JWT_SEC\\\" --from-literal=postgres-host=\\\"$PG_HOST\\\" --from-literal=postgres-password=\\\"$DB_P\\\" --from-literal=postgres-user=postgres --from-literal=postgres-db=userdb --from-literal=redis-host=\\\"$REDIS_HOST\\\" --from-literal=redis-auth-token=\\\"$REDIS_TOKEN\\\" --from-literal=sqs-queue-url=\\\"$SQS_URL\\\" --from-literal=aws-region=${{ env.AWS_REGION }} --from-literal=dynamodb-diary-table=kaloora-diary --from-literal=dynamodb-foods-table=kaloora-foods --dry-run=client -o yaml | kubectl apply -f -; kubectl apply -f /home/ubuntu/k8s/ingress-nginx.yaml; kubectl apply -f /home/ubuntu/k8s/user-service.yaml; kubectl apply -f /home/ubuntu/k8s/diary-service.yaml; kubectl apply -f /home/ubuntu/k8s/analytics-service.yaml; kubectl apply -f /home/ubuntu/k8s/hpa-pdb.yaml || true; kubectl apply -f /home/ubuntu/k8s/ingress.yaml; kubectl set image deployment/user-service user-service=${ECR_REGISTRY}/${{ env.PROJECT_NAME }}/user-service:v1.0.0 -n kaloora; kubectl set image deployment/diary-service diary-service=${ECR_REGISTRY}/${{ env.PROJECT_NAME }}/diary-service:v1.0.0 -n kaloora; kubectl set image deployment/analytics-service analytics-service=${ECR_REGISTRY}/${{ env.PROJECT_NAME }}/analytics-service:v1.0.0 -n kaloora; kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora'\"
-            ]" \
+            --parameters commands="[\"echo $B64_SCRIPT | base64 -d | bash\"]" \
             --query "Command.CommandId" \
             --output text)
 

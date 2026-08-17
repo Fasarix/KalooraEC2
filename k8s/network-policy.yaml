@@ -12,7 +12,6 @@ spec:
 
 ---
 # ── User Service ─────────────────────────────────────────────────────────────
-# Accetta traffico unicamente dall'Ingress Controller Nginx; egress verso RDS PostgreSQL, AWS API e CoreDNS.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -37,19 +36,26 @@ spec:
         - port: 5001
           protocol: TCP
   egress:
-    - ports:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP # CoreDNS in kube-system
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
         - port: 5432
           protocol: TCP # PostgreSQL RDS
         - port: 443
           protocol: TCP # AWS APIs / HTTPS
-        - port: 53
-          protocol: UDP # CoreDNS
-        - port: 53
-          protocol: TCP # CoreDNS
+        - port: 80
+          protocol: TCP # EC2 Instance Metadata Service (IMDS)
 
 ---
 # ── Diary Service ────────────────────────────────────────────────────────────
-# Accetta traffico da Ingress e Analytics Service; egress verso DynamoDB/SQS (HTTPS) e CoreDNS.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -77,19 +83,26 @@ spec:
         - port: 5002
           protocol: TCP
   egress:
-    - ports:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP # CoreDNS in kube-system
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
         - port: 443
           protocol: TCP # AWS DynamoDB / SQS (HTTPS)
+        - port: 80
+          protocol: TCP # EC2 Instance Metadata Service (IMDS)
         - port: 6379
           protocol: TCP # ElastiCache Redis Cache
-        - port: 53
-          protocol: UDP # CoreDNS
-        - port: 53
-          protocol: TCP # CoreDNS
 
 ---
 # ── Analytics Service ────────────────────────────────────────────────────────
-# Accetta traffico da Ingress; egress verso Diary Service, ElastiCache Redis, SQS (HTTPS) e CoreDNS.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -121,12 +134,20 @@ spec:
       ports:
         - port: 5002
           protocol: TCP # Chiamata HTTP interna al diary-service
-    - ports:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP # CoreDNS in kube-system
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
         - port: 6379
           protocol: TCP # ElastiCache Redis
         - port: 443
           protocol: TCP # AWS SQS (HTTPS)
-        - port: 53
-          protocol: UDP # CoreDNS
-        - port: 53
-          protocol: TCP # CoreDNS
+        - port: 80
+          protocol: TCP # EC2 Instance Metadata Service (IMDS)
