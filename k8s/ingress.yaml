@@ -4,6 +4,7 @@ metadata:
   name: kaloora-ingress
   namespace: kaloora
   annotations:
+    checkov.io/skip1: CKV_K8S_153=Healthz snippet used for ALB health check
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
