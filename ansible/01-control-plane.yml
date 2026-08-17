@@ -1,0 +1,90 @@
+# 01-control-plane.yml — Inizializzazione del Control Plane Kubernetes con kubeadm
+---
+- name: Inizializza il Control Plane Kubernetes
+  hosts: control_plane
+  become: true
+  vars:
+    pod_network_cidr: "192.168.0.0/16"   # Requisito per Calico CNI
+    calico_manifest: "https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/calico.yaml"
+
+  tasks:
+
+    - name: Verifica se il control plane è già stato inizializzato
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeadm_init_done
+
+    - name: Esegui kubeadm init (usa IP privato VPC per il cluster interno)
+      command: >
+        kubeadm init
+        --pod-network-cidr={{ pod_network_cidr }}
+        --control-plane-endpoint={{ ansible_default_ipv4.address }}
+        --apiserver-cert-extra-sans={{ ansible_host }},{{ ansible_default_ipv4.address }}
+      when: not kubeadm_init_done.stat.exists
+      register: kubeadm_init_output
+
+    # ── kubeconfig per l'utente ubuntu ────────────────────────────────────────────
+    - name: Crea la directory .kube per l'utente ubuntu
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copia admin.conf nella configurazione kubeconfig di ubuntu
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        remote_src: true
+        owner: ubuntu
+        group: ubuntu
+        mode: '0600'
+
+    # ── kubeconfig per l'utente root ──────────────────────────────────────────────
+    - name: Crea la directory .kube per root
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Copia admin.conf nella configurazione kubeconfig di root
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: true
+        mode: '0600'
+
+    # ── CNI: Calico (NetworkPolicy Enforced) ──────────────────────────────────
+    - name: Installa Calico CNI con supporto completo alle NetworkPolicies
+      become: false
+      command: kubectl apply -f {{ calico_manifest }}
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
+    # ── Comando Join per i Worker ─────────────────────────────────────────────
+    - name: Genera il comando join per i nodi worker
+      command: kubeadm token create --print-join-command
+      register: join_command_raw
+      changed_when: false
+
+    - name: Salva il comando join sul controller locale per il playbook dei worker
+      copy:
+        content: "{{ join_command_raw.stdout }}\n"
+        dest: /tmp/k8s_join_command.sh
+        mode: '0600'
+      delegate_to: localhost
+      become: false
+
+    # ── Verifiche di sistema ──────────────────────────────────────────────────
+    - name: Verifica lo stato dei nodi (il control plane deve risultare Ready)
+      become: false
+      command: kubectl get nodes
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: nodes_output
+      changed_when: false
+
+    - name: Stampa lo stato del nodo Control Plane
+      debug:
+        msg: "{{ nodes_output.stdout_lines }}"

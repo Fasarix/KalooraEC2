@@ -1,0 +1,160 @@
+# 00-prerequisites.yml — Eseguito su tutti i nodi prima di kubeadm init/join
+---
+- name: Prerequisiti Kubernetes su tutti i nodi
+  hosts: k8s
+  become: true
+
+  tasks:
+
+    # ── Hostname & Local Resolution ───────────────────────────────────────────
+    - name: Imposta l'hostname del nodo coerente con l'inventario
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Assicura la risoluzione del hostname locale in /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "127.0.0.1 {{ inventory_hostname }}"
+        state: present
+
+    # ── Attesa rilascio lock apt di Ubuntu ─────────────────────────────────────
+    - name: Attendi l'eventuale sblocco del gestore pacchetti apt di Ubuntu
+      shell: while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 2; done
+      changed_when: false
+
+    # ── Swap ──────────────────────────────────────────────────────────────────
+    - name: Disabilita lo swap immediatamente
+      command: swapoff -a
+      changed_when: false
+
+    - name: Disabilita lo swap in modo permanente (commenta in fstab)
+      replace:
+        path: /etc/fstab
+        regexp: '^([^#].*\s+swap\s+.*)$'
+        replace: '# \1'
+
+    # ── Moduli kernel ────────────────────────────────────────────────────────
+    - name: Carica i moduli kernel richiesti
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Rendi i moduli kernel persistenti al riavvio
+      copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          overlay
+          br_netfilter
+
+    # ── sysctl ────────────────────────────────────────────────────────────────
+    - name: Imposta i parametri sysctl per il networking di Kubernetes
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/k8s.conf
+        reload: true
+      loop:
+        - { key: net.bridge.bridge-nf-call-iptables,  value: "1" }
+        - { key: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+        - { key: net.ipv4.ip_forward,                 value: "1" }
+
+    - name: Applica immediatamente le regole sysctl del sistema
+      command: sysctl --system
+      changed_when: false
+
+    # ── containerd ────────────────────────────────────────────────────────────
+    - name: Aggiorna la cache apt
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Installa containerd e pacchetti di supporto
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - containerd
+          - conntrack       # Richiesto dai preflight check di kubeadm
+          - docker.io
+        state: present
+
+    - name: Crea la directory di configurazione per containerd
+      file:
+        path: /etc/containerd
+        state: directory
+        mode: '0755'
+
+    - name: Genera la configurazione di default per containerd con SystemdCgroup abilitato
+      shell: |
+        containerd config default \
+          | sed 's/SystemdCgroup = false/SystemdCgroup = true/' \
+          > /etc/containerd/config.toml
+      args:
+        creates: /etc/containerd/config.toml
+      notify: Restart containerd
+
+    - name: Assicura che il servizio containerd sia avviato ed abilitato
+      service:
+        name: containerd
+        state: started
+        enabled: true
+
+    # ── Pacchetti Kubernetes ───────────────────────────────────────────────────
+    - name: Crea la directory keyrings per apt
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Scarica la chiave GPG ufficiale di Kubernetes (v1.31)
+      shell: |
+        curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key \
+          | gpg --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+    - name: Aggiungi il repository apt di Kubernetes
+      copy:
+        dest: /etc/apt/sources.list.d/kubernetes.list
+        content: >
+          deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg]
+          https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /
+
+    - name: Aggiorna la cache apt dopo l'aggiunta del repository Kubernetes
+      apt:
+        update_cache: true
+
+    - name: Installa kubelet, kubeadm, kubectl
+      apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+
+    - name: Blocca l'aggiornamento automatico dei pacchetti Kubernetes (hold)
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Abilita ed avvia il servizio kubelet
+      service:
+        name: kubelet
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart containerd
+      service:
+        name: containerd
+        state: restarted

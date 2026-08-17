@@ -1,0 +1,95 @@
+openapi: 3.0.3
+info:
+  title: Kaloora Calorie Tracker API
+  description: Specifica OpenAPI 3.0 per i microservizi Kaloora (user-service, diary-service, analytics-service).
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: API Gateway Locale
+
+security:
+  - BearerAuth: []
+
+
+paths:
+  /api/users/register:
+    post:
+      summary: Registrazione nuovo utente
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name, age, gender, height, weight]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+                name: { type: string }
+                age: { type: integer }
+                gender: { type: string, enum: [male, female, other] }
+                height: { type: number }
+                weight: { type: number }
+      responses:
+        '201':
+          description: Utente registrato con successo
+        '400':
+          description: Dati di input non validi
+
+  /api/users/login:
+    post:
+      summary: Autenticazione utente
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Token JWT generato con successo
+        '401':
+          description: Credenziali errate
+
+  /api/diary:
+    get:
+      summary: Ottieni diario giornaliero per data
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Oggetto diario per la data specificata
+
+  /api/analytics/daily:
+    get:
+      summary: Analisi e statistiche giornaliere
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Statistiche e macro calcolati per il giorno
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

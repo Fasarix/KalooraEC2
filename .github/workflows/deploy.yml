@@ -1,0 +1,165 @@
+name: Kaloora Cloud CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT_NAME: kaloora
+
+jobs:
+  # ── FASE 1: DevSecOps Scans (Checkov, Gitleaks, Semgrep) ─────────────────────
+  security-scans:
+    name: Security & SAST Scans
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks Secret Detection
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Semgrep SAST Scan (Node.js & Python)
+        run: |
+          python3 -m pip install semgrep
+          semgrep scan --config auto --error services/
+
+      - name: Checkov IaC Scan (K8s & Terraform)
+        run: |
+          pip install checkov
+          checkov -d k8s/ --framework kubernetes --soft-fail-on LOW,MEDIUM
+          checkov -d terraform/ --framework terraform --soft-fail-on LOW,MEDIUM
+
+  # ── FASE 2: Build & Push Immagini Docker su ECR ──────────────────────────────
+  build-and-push:
+    name: Build & Push Container Images to ECR
+    needs: security-scans
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push Microservizi
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          for SERVICE in user-service diary-service analytics-service; do
+            echo "--> Building & pushing ${SERVICE}..."
+            docker build -t $REGISTRY/${{ env.PROJECT_NAME }}/${SERVICE}:${IMAGE_TAG} -t $REGISTRY/${{ env.PROJECT_NAME }}/${SERVICE}:v1.0.0 services/${SERVICE}
+            docker push $REGISTRY/${{ env.PROJECT_NAME }}/${SERVICE}:${IMAGE_TAG}
+            docker push $REGISTRY/${{ env.PROJECT_NAME }}/${SERVICE}:v1.0.0
+          done
+
+  # ── FASE 3: Deploy Frontend su S3 & Invalidate CloudFront ────────────────────
+  deploy-frontend:
+    name: Deploy Frontend to S3 & CloudFront
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Sync Static Files to S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_FRONTEND_BUCKET }}
+        run: |
+          aws s3 sync frontend/ s3://${S3_BUCKET}/ --delete
+
+      - name: Invalidate CloudFront Cache
+        env:
+          CLOUDFRONT_DIST_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          if [ -n "$CLOUDFRONT_DIST_ID" ]; then
+            aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DIST_ID --paths "/*"
+          fi
+
+  # ── FASE 4: Deploy Kubernetes Manifests via AWS SSM ─────────────────────────
+  deploy-k8s:
+    name: Deploy Microservices to Kubernetes Cluster via AWS SSM
+    needs: [build-and-push, deploy-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC / IAM Keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Deploy Manifests to Control Plane using AWS SSM
+        env:
+          CONTROL_PLANE_ID: ${{ secrets.CONTROL_PLANE_INSTANCE_ID }}
+        run: |
+          if [ -z "$CONTROL_PLANE_ID" ]; then
+            echo "❌ CONTROL_PLANE_INSTANCE_ID secret is required for AWS SSM deployment."
+            exit 1
+          fi
+
+          echo "1. Estrazione segreti da AWS SSM Parameter Store..."
+          JWT_SEC=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/jwt_secret" --with-decryption --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          DB_P=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/db_password" --with-decryption --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          REDIS_TOKEN=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/redis_auth_token" --with-decryption --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          PG_HOST=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/postgres_host" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          REDIS_HOST=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/redis_host" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          SQS_URL=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/sqs_queue_url" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+
+          if [ -z "$JWT_SEC" ] || [ -z "$DB_P" ]; then
+            echo "❌ Parametri SSM non trovati per il progetto ${{ env.PROJECT_NAME }}. Assicurati di aver eseguito terraform apply."
+            exit 1
+          fi
+
+          echo "2. Invio comando di deploy al Control Plane ($CONTROL_PLANE_ID) via AWS SSM Send-Command..."
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$CONTROL_PLANE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands="[
+              \"export KUBECONFIG=/home/ubuntu/.kube/config\",
+              \"kubectl create secret generic kaloora-secrets -n kaloora --from-literal=jwt-secret='$JWT_SEC' --from-literal=postgres-host='$PG_HOST' --from-literal=postgres-password='$DB_P' --from-literal=postgres-user='postgres' --from-literal=postgres-db='userdb' --from-literal=redis-host='$REDIS_HOST' --from-literal=redis-auth-token='$REDIS_TOKEN' --from-literal=sqs-queue-url='$SQS_URL' --from-literal=aws-region='${{ env.AWS_REGION }}' --from-literal=dynamodb-diary-table='kaloora-diary' --from-literal=dynamodb-foods-table='kaloora-foods' --dry-run=client -o yaml | kubectl apply -f -\",
+              \"kubectl apply -f /home/ubuntu/k8s/ingress-nginx.yaml\",
+              \"kubectl apply -f /home/ubuntu/k8s/user-service.yaml\",
+              \"kubectl apply -f /home/ubuntu/k8s/diary-service.yaml\",
+              \"kubectl apply -f /home/ubuntu/k8s/analytics-service.yaml\",
+              \"kubectl apply -f /home/ubuntu/k8s/hpa-pdb.yaml || true\",
+              \"kubectl apply -f /home/ubuntu/k8s/ingress.yaml\",
+              \"kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora\"
+            ]" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "Comando SSM inviato. Command ID: $COMMAND_ID"
+          echo "Attesa completamento esecuzione..."
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$CONTROL_PLANE_ID"
+          echo "✅ Deploy completato con successo via AWS Systems Manager!"

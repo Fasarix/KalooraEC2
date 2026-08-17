@@ -1,0 +1,18 @@
+# Esempio di inventario Ansible generato automaticamente da Terraform (terraform/inventory.tpl)
+# Supporta sia l'accesso via AWS SSM Session Manager (senza porte aperte) che via IP/SSH.
+
+[control_plane]
+control-plane-1 ansible_host=54.x.x.10 ansible_user=ubuntu instance_id=i-0123456789abcdef0
+
+[workers]
+worker-1 ansible_host=54.x.x.11 ansible_user=ubuntu instance_id=i-0123456789abcdef1
+worker-2 ansible_host=54.x.x.12 ansible_user=ubuntu instance_id=i-0123456789abcdef2
+
+[k8s:children]
+control_plane
+workers
+
+[all:vars]
+aws_region=us-east-1
+ansible_ssh_private_key_file=../terraform/id_ed25519
+ansible_ssh_common_args=-o StrictHostKeyChecking=accept-new

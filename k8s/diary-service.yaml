@@ -1,0 +1,144 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: diary-service
+  namespace: kaloora
+  labels:
+    app: diary-service
+  annotations:
+    checkov.io/skip1: CKV_K8S_35=Secrets used as env vars
+    checkov.io/skip2: CKV_K8S_43=Standard version tag used
+    checkov.io/skip3: CKV_K8S_15=Local application images use IfNotPresent
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: diary-service
+  template:
+    metadata:
+      labels:
+        app: diary-service
+    spec:
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - diary-service
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: diary-service
+          image: diary-service:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: secret-volume
+              mountPath: /etc/secrets
+              readOnly: true
+          ports:
+            - containerPort: 5002
+          env:
+            - name: PORT
+              value: "5002"
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: kaloora-secrets
+                  key: aws-region
+            - name: DYNAMODB_DIARY_TABLE
+              valueFrom:
+                secretKeyRef:
+                  name: kaloora-secrets
+                  key: dynamodb-diary-table
+            - name: DYNAMODB_FOODS_TABLE
+              valueFrom:
+                secretKeyRef:
+                  name: kaloora-secrets
+                  key: dynamodb-foods-table
+            - name: SQS_QUEUE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kaloora-secrets
+                  key: sqs-queue-url
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kaloora-secrets
+                  key: jwt-secret
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: kaloora-secrets
+                  key: redis-host
+                  optional: true
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kaloora-secrets
+                  key: redis-auth-token
+                  optional: true
+            - name: REDIS_TLS
+              value: "true"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5002
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+        - name: secret-volume
+          secret:
+            secretName: kaloora-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: diary-service
+  namespace: kaloora
+spec:
+  ports:
+    - port: 5002
+      targetPort: 5002
+  selector:
+    app: diary-service

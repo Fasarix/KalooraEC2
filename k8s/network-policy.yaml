@@ -1,0 +1,132 @@
+# ── Default Deny All ──────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: kaloora
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# ── User Service ─────────────────────────────────────────────────────────────
+# Accetta traffico unicamente dall'Ingress Controller Nginx; egress verso RDS PostgreSQL, AWS API e CoreDNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: user-service-policy
+  namespace: kaloora
+spec:
+  podSelector:
+    matchLabels:
+      app: user-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - port: 5001
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 5432
+          protocol: TCP # PostgreSQL RDS
+        - port: 443
+          protocol: TCP # AWS APIs / HTTPS
+        - port: 53
+          protocol: UDP # CoreDNS
+        - port: 53
+          protocol: TCP # CoreDNS
+
+---
+# ── Diary Service ────────────────────────────────────────────────────────────
+# Accetta traffico da Ingress e Analytics Service; egress verso DynamoDB/SQS (HTTPS) e CoreDNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: diary-service-policy
+  namespace: kaloora
+spec:
+  podSelector:
+    matchLabels:
+      app: diary-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: analytics-service
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - port: 5002
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP # AWS DynamoDB / SQS (HTTPS)
+        - port: 6379
+          protocol: TCP # ElastiCache Redis Cache
+        - port: 53
+          protocol: UDP # CoreDNS
+        - port: 53
+          protocol: TCP # CoreDNS
+
+---
+# ── Analytics Service ────────────────────────────────────────────────────────
+# Accetta traffico da Ingress; egress verso Diary Service, ElastiCache Redis, SQS (HTTPS) e CoreDNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: analytics-service-policy
+  namespace: kaloora
+spec:
+  podSelector:
+    matchLabels:
+      app: analytics-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - port: 5003
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: diary-service
+      ports:
+        - port: 5002
+          protocol: TCP # Chiamata HTTP interna al diary-service
+    - ports:
+        - port: 6379
+          protocol: TCP # ElastiCache Redis
+        - port: 443
+          protocol: TCP # AWS SQS (HTTPS)
+        - port: 53
+          protocol: UDP # CoreDNS
+        - port: 53
+          protocol: TCP # CoreDNS

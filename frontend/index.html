@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kaloora - Calorie & Health Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Auth Container -->
+  <div id="auth-container" class="glass-panel">
+    <div class="auth-box">
+      <img src="img/kaloora_logo.png" alt="Kaloora Logo" class="brand-logo-img-lg">
+      <h1 class="logo-text">Kaloora</h1>
+      <p class="subtitle">Traccia le tue calorie, ricette e salute in modo dinamico</p>
+
+      <div class="tabs">
+        <button id="tab-login" class="tab-btn active">Accedi</button>
+        <button id="tab-register" class="tab-btn">Registrati</button>
+      </div>
+
+      <!-- Form Login -->
+      <form id="login-form" class="auth-form" novalidate autocomplete="on">
+        <div class="input-group">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" required placeholder="Inserisci la tua email" autocomplete="username">
+        </div>
+        <div class="input-group">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" required placeholder="Inserisci la tua password" autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn-primary" id="btn-login-submit">Accedi</button>
+      </form>
+
+      <!-- Form Registrazione -->
+      <form id="register-form" class="auth-form hidden" novalidate autocomplete="on">
+
+        <div class="input-group">
+          <label for="reg-name">Nome completo</label>
+          <input type="text" id="reg-name" required placeholder="Esempio: Mario Rossi" autocomplete="name">
+        </div>
+        <div class="input-group">
+          <label for="reg-email">Email</label>
+          <input type="email" id="reg-email" required placeholder="nome@example.com" autocomplete="username">
+        </div>
+        <div class="input-group">
+          <label for="reg-password">Password</label>
+          <input type="password" id="reg-password" required minlength="6" placeholder="Minimo 6 caratteri" autocomplete="new-password">
+        </div>
+
+        <div class="form-row">
+          <div class="input-group">
+            <label for="reg-age">Età</label>
+            <input type="number" id="reg-age" required min="1" max="120" placeholder="Anni">
+          </div>
+          <div class="input-group">
+            <label for="reg-gender">Genere</label>
+            <select id="reg-gender">
+              <option value="male">Maschio</option>
+              <option value="female">Femmina</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="input-group">
+            <label for="reg-height">Altezza (cm)</label>
+            <input type="number" id="reg-height" required min="50" max="250" placeholder="cm">
+          </div>
+          <div class="input-group">
+            <label for="reg-weight">Peso (kg)</label>
+            <input type="number" id="reg-weight" step="0.1" required min="20" max="300" placeholder="kg">
+          </div>
+        </div>
+        <div class="input-group">
+          <label for="reg-activity">Livello di Attività</label>
+          <select id="reg-activity">
+            <option value="sedentary">Sedentario (poco o nessun esercizio)</option>
+            <option value="moderate" selected>Moderato (esercizio 3-5 giorni/settimana)</option>
+            <option value="active">Molto Attivo (esercizio intenso quotidiano)</option>
+          </select>
+        </div>
+        <button type="submit" class="btn-primary">Registrati</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dashboard principale (se loggato) -->
+  <div id="dashboard-container" class="hidden">
+    <header class="main-header glass-panel">
+      <div class="header-left">
+        <img src="img/kaloora_logo.png" alt="Kaloora Logo" class="brand-logo-img">
+        <span class="brand-name">KALOORA</span>
+      </div>
+
+      <!-- Navigation Tabs Centered -->
+      <nav class="main-nav-centered" id="main-nav-centered">
+        <!-- Re-rendered via JS based on active tab -->
+      </nav>
+
+      <div class="header-right">
+        <div class="profile-dropdown-wrapper">
+          <button id="btn-profile-dropdown" class="profile-avatar-btn" title="Menu Profilo">
+            <span class="avatar-icon">👤</span>
+          </button>
+          <div id="profile-dropdown-menu" class="profile-dropdown-menu hidden">
+            <div class="dropdown-header" id="user-display-name">Ciao, User</div>
+            <hr class="dropdown-divider">
+            <button class="dropdown-item" id="btn-menu-settings">⚙️ Impostazioni</button>
+            <button class="dropdown-item danger" id="btn-logout">🚪 Esci</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Smart Notification Banner Area -->
+    <div id="smart-alert-banner" class="smart-alert-banner hidden">
+      <span class="alert-icon">⚠️</span>
+      <span id="alert-text-message">Notifica di sistema</span>
+      <button id="btn-dismiss-alert" class="btn-close-sm">&times;</button>
+    </div>
+
+    <!-- TAB 1: DIARY (LOG GIORNALIERO) -->
+    <div id="tab-content-diary" class="tab-content">
+      <div class="dashboard-redesign-layout">
+        
+        <!-- Top Centered Date Picker Bar -->
+        <div class="top-date-bar">
+          <button id="btn-prev-date" title="Giorno precedente">&lt;</button>
+          <input type="date" id="diary-date">
+          <button id="btn-next-date" title="Giorno successivo">&gt;</button>
+        </div>
+
+        <!-- Top Cards Row: Calorie Summary, Fasting Protocol & Water -->
+        <div class="top-cards-row">
+          
+          <!-- Card 1: Daily Calorie Wheel -->
+          <div class="glass-panel summary-card">
+            <h2 class="summary-title">Riepilogo Giornaliero</h2>
+            <div class="calorie-progress-container">
+              <div class="calorie-circle">
+                <svg width="170" height="170">
+                  <circle class="bg" cx="85" cy="85" r="74"></circle>
+                  <circle class="progress" id="calorie-progress-bar" cx="85" cy="85" r="74" stroke-dasharray="465" stroke-dashoffset="465"></circle>
+                </svg>
+                <div class="calorie-text">
+                  <span id="cal-remaining" class="value">0</span>
+                  <span id="cal-status-label" class="label">kcal rimaste</span>
+                  <span class="sub-label">Target: <span id="cal-target">0</span> kcal</span>
+                </div>
+              </div>
+            </div>
+            <div class="net-calories-badge">
+              <span>Cibo: <strong id="val-food-cals">0</strong> kcal</span>
+              <span>•</span>
+              <span>Sport: <strong id="val-sport-cals" class="text-green">+0</strong> kcal</span>
+            </div>
+          </div>
+
+          <!-- Card 2: Fasting Protocol Widget -->
+          <div class="glass-panel fasting-card" id="fasting-widget-card">
+            <div class="fasting-card-top">
+              <h2>⏳ Digiuno Intermittente</h2>
+              <div class="fasting-pill-box" id="fasting-protocol-badge">
+                Protocollo: <strong>Nessuno</strong>
+              </div>
+            </div>
+            <div class="fasting-timer-center">
+              <div class="timer-time" id="fasting-timer-countdown">00:00:00</div>
+              <div class="timer-status" id="fasting-timer-status">In attesa del primo pasto per avviare il timer...</div>
+            </div>
+          </div>
+
+          <!-- Card 3: Water Hydration Tracker (10 Interactive Glasses) -->
+          <div class="glass-panel water-card">
+            <div class="water-header">
+              <div class="water-title-row">
+                <h2>💧 Idratazione Acqua</h2>
+                <div class="water-progress-badge"><span id="water-current">0</span> / 2000 ml</div>
+              </div>
+              <span class="water-subtitle">Clicca sui bicchieri (+200ml) per aggiungere o rimuovere</span>
+            </div>
+            <div class="water-glasses-grid" id="water-glasses-grid">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Middle Row: Full-width Macronutrients Panel -->
+        <div class="glass-panel macros-panel">
+          <div class="macro-bar-group">
+            <div class="macro-info">
+              <span>🌾 Carboidrati</span>
+              <span><strong id="carbs-current">0</strong> / <span id="carbs-target">0</span> g</span>
+            </div>
+            <div class="bar-bg"><div id="carbs-bar" class="bar-fill carbs" style="width: 0%;"></div></div>
+          </div>
+          <div class="macro-bar-group">
+            <div class="macro-info">
+              <span>🥩 Proteine</span>
+              <span><strong id="protein-current">0</strong> / <span id="protein-target">0</span> g</span>
+            </div>
+            <div class="bar-bg"><div id="protein-bar" class="bar-fill protein" style="width: 0%;"></div></div>
+          </div>
+          <div class="macro-bar-group">
+            <div class="macro-info">
+              <span>🥑 Grassi</span>
+              <span><strong id="fat-current">0</strong> / <span id="fat-target">0</span> g</span>
+            </div>
+            <div class="bar-bg"><div id="fat-bar" class="bar-fill fat" style="width: 0%;"></div></div>
+          </div>
+        </div>
+
+        <!-- Full-Width Sport / Activity Panel -->
+        <div class="glass-panel sport-full-panel">
+          <div class="section-header-row">
+            <h2>🏃‍♀️ Attività Fisica & Sport</h2>
+            <button class="btn-primary" id="btn-open-activity-dialog">+ Aggiungi Sport</button>
+          </div>
+          <ul class="activity-list" id="activities-list">
+            <!-- Activities rendered via JS -->
+          </ul>
+        </div>
+
+        <!-- Meals Container (Side-by-side Meals Cards) -->
+        <div class="meals-container">
+          <h2 style="margin-bottom: 12px; font-size: 1.2rem;">Diario Pasti</h2>
+          <div class="meals-list" id="meals-container">
+            <!-- Rendered via JS -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TAB 2: RICETTE CONSIGLIATE -->
+    <div id="tab-content-recipes" class="tab-content hidden">
+      <div class="glass-panel">
+        <h2>🍲 Ricette Consigliate per Te</h2>
+        <p class="subtitle">Piatti bilanciati e suggeriti in base al tuo fabbisogno ed ai macronutrienti rimasti oggi</p>
+        
+        <div class="macro-gap-card">
+          <span class="icon">💡</span>
+          <span id="macro-gap-text">Calcolando i tuoi macro rimasti per suggerire ricette...</span>
+        </div>
+
+        <div class="recipe-filters">
+          <input type="text" id="recipe-search-input" placeholder="🔍 Cerca ricetta o ingrediente (es. Pollo, Avena, Poke...)">
+          <div class="filter-pills">
+            <button class="pill-btn active" data-filter="ALL">Tutte</button>
+            <button class="pill-btn" data-filter="highProtein">🥩 Proteica</button>
+            <button class="pill-btn" data-filter="lowCal">⚡ Ipocalorica</button>
+            <button class="pill-btn" data-filter="isVegetarian">🥗 Vegetariana</button>
+            <button class="pill-btn" data-filter="quick">⏱️ Veloci (&lt;15m)</button>
+            <button class="pill-btn" data-filter="Colazione">🍳 Colazione</button>
+            <button class="pill-btn" data-filter="Pranzo">🍝 Pranzo</button>
+            <button class="pill-btn" data-filter="Cena">🥩 Cena</button>
+            <button class="pill-btn" data-filter="Spuntino">🍎 Spuntini</button>
+          </div>
+        </div>
+
+        <div class="recipes-grid" id="recipes-grid-list">
+          <!-- Rendered via JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: STATISTICHE & PROGRESSI -->
+    <div id="tab-content-stats" class="tab-content hidden">
+      <div class="glass-panel">
+        <div class="stats-header-row">
+          <div>
+            <h2>📊 Statistiche & Progressi</h2>
+            <p class="subtitle">Analizza l'andamento del tuo consumo calorico e del tuo peso nel tempo.</p>
+          </div>
+          <div class="period-toggle">
+            <button class="period-btn active" data-period="weekly">Settimanale (7 giorni)</button>
+            <button class="period-btn" data-period="monthly">Mensile (30 giorni)</button>
+          </div>
+        </div>
+
+        <!-- Banner Confronto Periodo -->
+        <div class="comparison-banner">
+          <div class="comp-badge">
+            <span class="icon">🔥</span>
+            <span id="comp-calorie-text">Confronto calorie in corso...</span>
+          </div>
+          <div class="comp-badge">
+            <span class="icon">💧</span>
+            <span id="comp-water-text">Confronto idratazione...</span>
+          </div>
+          <div class="comp-badge">
+            <span class="icon">🏃‍♀️</span>
+            <span id="comp-sport-text">Confronto attività...</span>
+          </div>
+        </div>
+
+        <!-- Grafico Calorie SVG -->
+        <div class="glass-panel chart-card">
+          <h3 style="margin-bottom: 16px;">Andamento Calorie nel Tempo</h3>
+          <div class="svg-chart-wrapper">
+            <svg id="calorie-trend-svg" width="100%" height="260" viewBox="0 0 700 260"></svg>
+          </div>
+        </div>
+
+        <!-- In evidenza / Highlights -->
+        <div class="stats-highlights-grid">
+          <div class="stat-card">
+            <div class="stat-icon">🌟</div>
+            <div class="stat-body">
+              <span class="stat-title">Cibo più Frequente</span>
+              <span class="stat-val" id="stat-fav-food">-</span>
+              <span class="stat-sub" id="stat-fav-count">0 volte</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🏃‍♂️</div>
+            <div class="stat-body">
+              <span class="stat-title">Picco Attività Fisica</span>
+              <span class="stat-val" id="stat-peak-sport">-</span>
+              <span class="stat-sub" id="stat-peak-sport-date">-</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🥩</div>
+            <div class="stat-body">
+              <span class="stat-title">Picco Proteine</span>
+              <span class="stat-val" id="stat-peak-protein">-</span>
+              <span class="stat-sub" id="stat-peak-protein-date">-</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">💧</div>
+            <div class="stat-body">
+              <span class="stat-title">Media Idratazione</span>
+              <span class="stat-val" id="stat-avg-water">0 ml</span>
+              <span class="stat-sub">al giorno</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tracciamento Peso Corporeo con pulsante per aggiungere -->
+        <div class="glass-panel weight-tracking-card">
+          <div class="section-header-row" style="margin-bottom: 16px;">
+            <div>
+              <h3>⚖️ Tracciamento Peso Corporeo</h3>
+              <p class="subtitle" style="margin-bottom:0;">Peso attuale: <strong id="weight-current-val">-- kg</strong> (Clicca sui pallini del grafico per modificare o eliminare)</p>
+            </div>
+            <button class="btn-primary" id="btn-open-weight-dialog">+ Aggiorna Peso</button>
+          </div>
+          <div class="weight-chart-wrapper">
+            <svg id="weight-trend-svg" width="100%" height="220" viewBox="0 0 700 220"></svg>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TAB 4: IMPOSTAZIONI & PROFILO -->
+    <div id="tab-content-settings" class="tab-content hidden">
+      <div class="glass-panel">
+        <h2>⚙️ Impostazioni Profilo & Obbiettivi</h2>
+        <p class="subtitle">Modifica i tuoi dati fisici, password ed imposta le regole del digiuno intermittente</p>
+
+        <form id="settings-form" class="settings-form" autocomplete="off">
+          <div class="form-section">
+            <h3>👤 Dati Personali</h3>
+            <div class="form-row">
+              <div class="input-group">
+                <label for="sett-name">Nome Completo</label>
+                <input type="text" id="sett-name" required autocomplete="off">
+              </div>
+              <div class="input-group">
+                <label for="sett-email">Email</label>
+                <input type="email" id="sett-email" required autocomplete="off">
+              </div>
+            </div>
+            <div class="input-group">
+              <label for="sett-password">Nuova Password (lascia vuoto per non modificare)</label>
+              <input type="password" id="sett-password" minlength="6" placeholder="••••••••" autocomplete="new-password">
+
+            </div>
+          </div>
+
+          <div class="form-section">
+            <h3>📏 Parametri Fisici</h3>
+            <div class="form-row">
+              <div class="input-group">
+                <label for="sett-age">Età (anni)</label>
+                <input type="number" id="sett-age" required>
+              </div>
+              <div class="input-group">
+                <label for="sett-gender">Genere</label>
+                <select id="sett-gender">
+                  <option value="male">Maschio</option>
+                  <option value="female">Femmina</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="input-group">
+                <label for="sett-height">Altezza (cm)</label>
+                <input type="number" id="sett-height" required>
+              </div>
+              <div class="input-group">
+                <label for="sett-weight">Peso Attuale (kg)</label>
+                <input type="number" id="sett-weight" step="0.1" required>
+              </div>
+            </div>
+            <div class="input-group">
+              <label for="sett-activity">Livello di Attività Fisica</label>
+              <select id="sett-activity">
+                <option value="sedentary">Sedentario (poco o nessun esercizio)</option>
+                <option value="moderate">Moderato (esercizio 3-5 giorni/settimana)</option>
+                <option value="active">Molto Attivo (esercizio intenso quotidiano)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <h3>⏱️ Protocollo Digiuno Intermittente & Pasti Abilitati</h3>
+            <div class="input-group">
+              <label for="sett-fasting">Seleziona Protocollo</label>
+              <select id="sett-fasting">
+                <option value="none">Nessun Digiuno (Standard)</option>
+                <option value="16_8">Digiuno 16:8 (8h alimentari, 16h digiuno)</option>
+                <option value="omad">OMAD (1 Pasto al giorno - 24h digiuno)</option>
+              </select>
+            </div>
+            <div style="font-size: 0.85rem; color: #a5b4fc; margin-bottom: 12px;" id="fasting-meal-rule-hint">
+              💡 Seleziona i pasti abilitati in base al tuo protocollo.
+            </div>
+
+            <div class="input-group">
+              <label>Pasti Visibili nel Diario:</label>
+              <div class="checkbox-group">
+                <label><input type="checkbox" class="chk-meal" value="breakfast" checked> 🍳 Colazione</label>
+                <label><input type="checkbox" class="chk-meal" value="lunch" checked> 🍝 Pranzo</label>
+                <label><input type="checkbox" class="chk-meal" value="dinner" checked> 🥩 Cena</label>
+                <label><input type="checkbox" class="chk-meal" value="snack" checked> 🍎 Spuntini</label>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-primary">Salva Modifiche Profilo</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- DIALOG 1: Aggiungi / Modifica Alimento -->
+  <dialog id="add-meal-dialog" class="glass-dialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3 id="dialog-title">Aggiungi Alimento</h3>
+        <button id="btn-close-dialog" class="btn-close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="input-group" id="group-search-food">
+          <label for="food-search-input">Cerca Alimento</label>
+          <input type="text" id="food-search-input" placeholder="Es. Mela, Petto di pollo, Riso..." autocomplete="off">
+          <ul id="search-results" class="search-dropdown hidden"></ul>
+        </div>
+
+        <div id="selected-food-info" class="selected-food-details hidden">
+          <div class="food-title" id="info-food-name">-</div>
+          <div class="food-macros">
+            Calorie: <span id="info-calories">0</span> kcal |
+            Carbo: <span id="info-carbs">0</span>g |
+            Prot: <span id="info-protein">0</span>g |
+            Grassi: <span id="info-fat">0</span>g (per <span id="info-unit">100g</span>)
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="food-quantity-input">Quantità (g / unità)</label>
+          <input type="number" id="food-quantity-input" value="100" min="1">
+        </div>
+
+        <div id="group-new-food" style="margin-top: 16px;">
+          <button type="button" class="btn-secondary" id="btn-toggle-new-food" style="width: 100%;">+ Crea Nuovo Alimento Personalizzato</button>
+          
+          <div id="new-food-form" class="hidden" style="margin-top: 12px; background: rgba(15,23,42,0.4); padding: 12px; border-radius: 10px;">
+            <div class="input-group">
+              <label for="new-food-name">Nome Alimento</label>
+              <input type="text" id="new-food-name" placeholder="Es. Torta della nonna">
+            </div>
+            <div class="form-row">
+              <div class="input-group">
+                <label for="new-food-cal">Calorie (kcal per 100g)</label>
+                <input type="number" id="new-food-cal" placeholder="es. 250">
+              </div>
+              <div class="input-group">
+                <label for="new-food-carbs">Carbo (g)</label>
+                <input type="number" id="new-food-carbs" placeholder="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="input-group">
+                <label for="new-food-protein">Proteine (g)</label>
+                <input type="number" id="new-food-protein" placeholder="0">
+              </div>
+              <div class="input-group">
+                <label for="new-food-fat">Grassi (g)</label>
+                <input type="number" id="new-food-fat" placeholder="0">
+              </div>
+            </div>
+            <button type="button" class="btn-primary" id="btn-create-food" style="margin-top: 8px;">Salva ed Inserisci Alimento</button>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-delete-modal-meal" class="btn-danger hidden">Rimuovi Alimento</button>
+        <button id="btn-submit-meal" class="btn-primary" disabled>Aggiungi al diario</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- DIALOG 2: Dettaglio Ricetta & Procedimento -->
+  <dialog id="recipe-detail-dialog" class="glass-dialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3 id="recipe-modal-title">Dettaglio Ricetta</h3>
+        <button id="btn-close-recipe-modal" class="btn-close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <img id="recipe-modal-img" src="" alt="" referrerpolicy="no-referrer" style="width:100%; height:160px; object-fit:cover; border-radius:12px; margin-bottom:12px;">
+        <div class="recipe-modal-meta">
+          <span class="badge-category" id="recipe-modal-cat">Pranzo</span>
+          <span class="badge-time" id="recipe-modal-time">⏱️ 15 min</span>
+          <span class="badge-diff" id="recipe-modal-diff">Facile</span>
+        </div>
+        <div class="recipe-modal-macros" id="recipe-modal-macros-box"></div>
+
+        <div class="recipe-section-block" style="margin-top:12px;">
+          <h4>🛒 Ingredienti</h4>
+          <ul class="recipe-ingredients-list" id="recipe-modal-ingredients"></ul>
+        </div>
+
+        <div class="recipe-section-block" style="margin-top:12px;">
+          <h4>👨‍🍳 Procedimento di Preparazione</h4>
+          <ol class="recipe-steps-list" id="recipe-modal-steps"></ol>
+        </div>
+
+        <div class="input-group" style="margin-top:12px;">
+          <label for="recipe-target-meal-select">Seleziona Pasto in cui aggiungere:</label>
+          <select id="recipe-target-meal-select">
+            <option value="breakfast">🍳 Colazione</option>
+            <option value="lunch" selected>🍝 Pranzo</option>
+            <option value="dinner">🥩 Cena</option>
+            <option value="snack">🍎 Spuntini</option>
+          </select>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-add-recipe-to-diary" class="btn-primary" style="width: 100%;">Aggiungi Questa Ricetta al Diario</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- DIALOG 3: Registra Attività Fisica -->
+  <dialog id="activity-dialog" class="glass-dialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3>Registra Attività Fisica</h3>
+        <button id="btn-close-activity-dialog" class="btn-close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="input-group">
+          <label for="act-name-input">Nome Attività / Sport</label>
+          <input type="text" id="act-name-input" placeholder="es. Corsa, Nuoto, Palestra, Ciclismo...">
+        </div>
+        <div class="form-row">
+          <div class="input-group">
+            <label for="act-cals-input">Calorie Bruciate (kcal)</label>
+            <input type="number" id="act-cals-input" placeholder="es. 300" min="1">
+          </div>
+          <div class="input-group">
+            <label for="act-duration-input">Durata (minuti)</label>
+            <input type="number" id="act-duration-input" min="1" value="30">
+          </div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-submit-activity" class="btn-primary">Registra Allenamento</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- DIALOG 4: Aggiorna Peso (Con Blocco Date Future) -->
+  <dialog id="weight-dialog" class="glass-dialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3>Registra Nuovo Peso Corporeo</h3>
+        <button id="btn-close-weight-dialog" class="btn-close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="input-group">
+          <label for="weight-log-input">Peso Attuale (kg)</label>
+          <input type="number" id="weight-log-input" step="0.1" placeholder="es. 75.5" required>
+        </div>
+        <div class="input-group">
+          <label for="weight-log-date">Data della Misurazione</label>
+          <input type="date" id="weight-log-date">
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-submit-weight" class="btn-primary">Salva Misurazione</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- DIALOG 5: Modifica / Elimina Registro Peso -->
+  <dialog id="edit-weight-dialog" class="glass-dialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3>Modifica / Elimina Registro Peso</h3>
+        <button id="btn-close-edit-weight-dialog" class="btn-close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <input type="hidden" id="edit-weight-id">
+        <div class="input-group">
+          <label for="edit-weight-input">Peso Corporeo (kg)</label>
+          <input type="number" id="edit-weight-input" step="0.1" required placeholder="Esempio: 70.5">
+        </div>
+        <div class="input-group">
+          <label for="edit-weight-date">Data della Misurazione</label>
+          <input type="date" id="edit-weight-date" required>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button type="button" class="btn-danger" id="btn-delete-weight-entry">Elimina Registro</button>
+        <button type="button" class="btn-primary" id="btn-submit-edit-weight">Salva Modifiche</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
+

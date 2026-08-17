@@ -1,0 +1,6 @@
+# site.yml — Master Playbook per la configurazione del cluster K8s (Cluster Boundary)
+---
+- import_playbook: 00-prerequisites.yml
+- import_playbook: 01-control-plane.yml
+- import_playbook: 02-workers.yml
+

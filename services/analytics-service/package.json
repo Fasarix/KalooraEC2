@@ -1,0 +1,19 @@
+{
+  "name": "analytics-service",
+  "version": "1.0.0",
+  "description": "Analytics & Cache Service for Calorie Tracker",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.540.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "redis": "^4.6.14"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.5"
+  }
+}
