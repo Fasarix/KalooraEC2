@@ -61,16 +61,18 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build & Push Microservizi
+        id: build-images
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           for SERVICE in user-service diary-service analytics-service; do
             echo "--> Building & pushing ${SERVICE}..."
-            docker build -t $REGISTRY/${{ env.PROJECT_NAME }}/${SERVICE}:${IMAGE_TAG} -t $REGISTRY/${{ env.PROJECT_NAME }}/${SERVICE}:v1.0.0 services/${SERVICE}
-            docker push $REGISTRY/${{ env.PROJECT_NAME }}/${SERVICE}:${IMAGE_TAG}
-            docker push $REGISTRY/${{ env.PROJECT_NAME }}/${SERVICE}:v1.0.0
+            docker build -t $REGISTRY/${{ env.PROJECT_NAME }}-${SERVICE}:${IMAGE_TAG} -t $REGISTRY/${{ env.PROJECT_NAME }}-${SERVICE}:v1.0.0 services/${SERVICE}
+            docker push $REGISTRY/${{ env.PROJECT_NAME }}-${SERVICE}:${IMAGE_TAG}
+            docker push $REGISTRY/${{ env.PROJECT_NAME }}-${SERVICE}:v1.0.0
           done
+          echo "registry=$REGISTRY" >> $GITHUB_OUTPUT
 
   # ── FASE 3: Deploy Frontend su S3 & Invalidate CloudFront ────────────────────
   deploy-frontend:
@@ -143,7 +145,9 @@ jobs:
             exit 1
           fi
 
-          echo "1. Estrazione segreti da AWS SSM Parameter Store..."
+          echo "1. Estrazione segreti da AWS SSM Parameter Store e Registry ECR..."
+          ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+          ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
           JWT_SEC=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/jwt_secret" --with-decryption --query "Parameter.Value" --output text 2>/dev/null || echo "")
           DB_P=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/db_password" --with-decryption --query "Parameter.Value" --output text 2>/dev/null || echo "")
           REDIS_TOKEN=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/redis_auth_token" --with-decryption --query "Parameter.Value" --output text 2>/dev/null || echo "")
@@ -161,7 +165,7 @@ jobs:
             --instance-ids "$CONTROL_PLANE_ID" \
             --document-name "AWS-RunShellScript" \
             --parameters commands="[
-              \"su - ubuntu -c 'export KUBECONFIG=/home/ubuntu/.kube/config; kubectl create namespace kaloora --dry-run=client -o yaml | kubectl apply -f -; kubectl create secret generic kaloora-secrets -n kaloora --from-literal=jwt-secret=\\\"$JWT_SEC\\\" --from-literal=postgres-host=\\\"$PG_HOST\\\" --from-literal=postgres-password=\\\"$DB_P\\\" --from-literal=postgres-user=postgres --from-literal=postgres-db=userdb --from-literal=redis-host=\\\"$REDIS_HOST\\\" --from-literal=redis-auth-token=\\\"$REDIS_TOKEN\\\" --from-literal=sqs-queue-url=\\\"$SQS_URL\\\" --from-literal=aws-region=${{ env.AWS_REGION }} --from-literal=dynamodb-diary-table=kaloora-diary --from-literal=dynamodb-foods-table=kaloora-foods --dry-run=client -o yaml | kubectl apply -f -; kubectl apply -f /home/ubuntu/k8s/ingress-nginx.yaml; kubectl apply -f /home/ubuntu/k8s/user-service.yaml; kubectl apply -f /home/ubuntu/k8s/diary-service.yaml; kubectl apply -f /home/ubuntu/k8s/analytics-service.yaml; kubectl apply -f /home/ubuntu/k8s/hpa-pdb.yaml || true; kubectl apply -f /home/ubuntu/k8s/ingress.yaml; kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora'\"
+              \"su - ubuntu -c 'export KUBECONFIG=/home/ubuntu/.kube/config; kubectl create namespace kaloora --dry-run=client -o yaml | kubectl apply -f -; kubectl create secret generic kaloora-secrets -n kaloora --from-literal=jwt-secret=\\\"$JWT_SEC\\\" --from-literal=postgres-host=\\\"$PG_HOST\\\" --from-literal=postgres-password=\\\"$DB_P\\\" --from-literal=postgres-user=postgres --from-literal=postgres-db=userdb --from-literal=redis-host=\\\"$REDIS_HOST\\\" --from-literal=redis-auth-token=\\\"$REDIS_TOKEN\\\" --from-literal=sqs-queue-url=\\\"$SQS_URL\\\" --from-literal=aws-region=${{ env.AWS_REGION }} --from-literal=dynamodb-diary-table=kaloora-diary --from-literal=dynamodb-foods-table=kaloora-foods --dry-run=client -o yaml | kubectl apply -f -; kubectl apply -f /home/ubuntu/k8s/ingress-nginx.yaml; kubectl apply -f /home/ubuntu/k8s/user-service.yaml; kubectl apply -f /home/ubuntu/k8s/diary-service.yaml; kubectl apply -f /home/ubuntu/k8s/analytics-service.yaml; kubectl apply -f /home/ubuntu/k8s/hpa-pdb.yaml || true; kubectl apply -f /home/ubuntu/k8s/ingress.yaml; kubectl set image deployment/user-service user-service=${ECR_REGISTRY}/${{ env.PROJECT_NAME }}-user-service:v1.0.0 -n kaloora; kubectl set image deployment/diary-service diary-service=${ECR_REGISTRY}/${{ env.PROJECT_NAME }}-diary-service:v1.0.0 -n kaloora; kubectl set image deployment/analytics-service analytics-service=${ECR_REGISTRY}/${{ env.PROJECT_NAME }}-analytics-service:v1.0.0 -n kaloora; kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora'\"
             ]" \
             --query "Command.CommandId" \
             --output text)
