@@ -75,6 +75,14 @@ resource "aws_dynamodb_table" "tf_locks" {
     type = "S"
   }
 
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
   tags = {
     Name        = "${var.project_name}-tf-locks"
     Environment = "management"

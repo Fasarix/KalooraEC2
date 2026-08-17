@@ -72,6 +72,12 @@ resource "aws_cloudfront_response_headers_policy" "security_headers" {
       referrer_policy = "strict-origin-when-cross-origin"
       override        = true
     }
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = true
+      preload                    = true
+      override                   = true
+    }
     content_security_policy {
       content_security_policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https:;"
       override                = true

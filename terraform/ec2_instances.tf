@@ -18,6 +18,8 @@ resource "aws_instance" "control_plane" {
   vpc_security_group_ids = [aws_security_group.k8s_nodes.id]
   iam_instance_profile   = aws_iam_instance_profile.k8s_node_profile.name
   key_name               = local.has_ssh_key ? aws_key_pair.kaloora_key[0].key_name : null
+  ebs_optimized          = true
+  monitoring             = true
 
   metadata_options {
     http_endpoint               = "enabled"
@@ -48,6 +50,8 @@ resource "aws_instance" "workers" {
   vpc_security_group_ids = [aws_security_group.k8s_nodes.id]
   iam_instance_profile   = aws_iam_instance_profile.k8s_node_profile.name
   key_name               = local.has_ssh_key ? aws_key_pair.kaloora_key[0].key_name : null
+  ebs_optimized          = true
+  monitoring             = true
 
   metadata_options {
     http_endpoint               = "enabled"

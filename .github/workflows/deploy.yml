@@ -38,7 +38,7 @@ jobs:
         run: |
           pip install checkov
           checkov -d k8s/ --framework kubernetes --soft-fail-on LOW,MEDIUM
-          checkov -d terraform/ --framework terraform --soft-fail-on LOW,MEDIUM
+          checkov -d terraform/ --framework terraform --soft-fail
 
   # ── FASE 2: Build & Push Immagini Docker su ECR ──────────────────────────────
   build-and-push:

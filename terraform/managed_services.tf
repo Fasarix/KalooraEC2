@@ -68,10 +68,12 @@ resource "aws_db_instance" "postgres" {
   db_subnet_group_name    = aws_db_subnet_group.rds.name
   parameter_group_name    = aws_db_parameter_group.postgres.name
   vpc_security_group_ids  = [aws_security_group.rds.id]
-  publicly_accessible     = false
-  backup_retention_period = 7 # Backup automatici per 7 giorni
-  skip_final_snapshot     = true
-  deletion_protection     = false
+  publicly_accessible        = false
+  backup_retention_period    = 7 # Backup automatici per 7 giorni
+  auto_minor_version_upgrade = true
+  copy_tags_to_snapshot      = true
+  skip_final_snapshot        = true
+  deletion_protection        = false
 
   tags = {
     Name = "${var.project_name}-postgres-db"
