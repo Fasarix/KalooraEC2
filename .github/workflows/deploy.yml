@@ -162,66 +162,73 @@ jobs:
           SQS_URL=$(aws ssm get-parameter --name "/${{ env.PROJECT_NAME }}/sqs_queue_url" --query "Parameter.Value" --output text 2>/dev/null || echo "")
 
           # Impacchetta i manifesti K8s aggiornati dal commit corrente
-          K8S_TAR_B64=$(tar -czf - -C k8s . | base64 | tr -d '\n')
+          export K8S_TAR_B64=$(tar -czf - -C k8s . | base64 | tr -d '\n')
+          export ECR_REGISTRY ECR_PASS JWT_SEC DB_P REDIS_TOKEN PG_HOST REDIS_HOST SQS_URL
 
           echo "2. Preparazione ed invio script di deploy al Control Plane ($CONTROL_PLANE_ID)..."
-          DEPLOY_SCRIPT=$(cat << EOF
-su - ubuntu -c '
-export KUBECONFIG=/home/ubuntu/.kube/config
+          python3 - << 'PY_EOF'
+          import os
+          
+          script = f"""su - ubuntu << 'USER_EOF'
+          export KUBECONFIG=/home/ubuntu/.kube/config
+          
+          # 1. Aggiorna i manifesti K8s dal commit corrente
+          mkdir -p /home/ubuntu/k8s
+          echo "{os.environ.get('K8S_TAR_B64', '')}" | base64 -d | tar -xzf - -C /home/ubuntu/k8s/
+          
+          # 2. Namespace e NetworkPolicies
+          kubectl apply -f /home/ubuntu/k8s/namespace.yaml
+          kubectl apply -f /home/ubuntu/k8s/network-policy.yaml
+          
+          # 3. Secret ECR e applicativi
+          kubectl create secret docker-registry ecr-secret -n kaloora --docker-server={os.environ.get('ECR_REGISTRY', '')} --docker-username=AWS --docker-password="{os.environ.get('ECR_PASS', '')}" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl patch serviceaccount default -n kaloora -p '{{"imagePullSecrets": [{{"name": "ecr-secret"}}]}}' || true
+          if [ -f /home/ubuntu/k8s/ecr-cronjob.yaml ]; then
+            kubectl apply -f /home/ubuntu/k8s/ecr-cronjob.yaml
+          fi
+          
+          kubectl create secret generic kaloora-secrets -n kaloora \\
+            --from-literal=jwt-secret="{os.environ.get('JWT_SEC', '')}" \\
+            --from-literal=postgres-host="{os.environ.get('PG_HOST', '')}" \\
+            --from-literal=postgres-password="{os.environ.get('DB_P', '')}" \\
+            --from-literal=postgres-user=postgres \\
+            --from-literal=postgres-db=userdb \\
+            --from-literal=redis-host="{os.environ.get('REDIS_HOST', '')}" \\
+            --from-literal=redis-auth-token="{os.environ.get('REDIS_TOKEN', '')}" \\
+            --from-literal=sqs-queue-url="{os.environ.get('SQS_URL', '')}" \\
+            --from-literal=aws-region={os.environ.get('AWS_REGION', 'us-east-1')} \\
+            --from-literal=dynamodb-diary-table=kaloora-diary \\
+            --from-literal=dynamodb-foods-table=kaloora-foods \\
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          # 4. Aggiornamento immagini e applicazione componenti
+          sed -i "s|image: user-service:v1.0.0|image: {os.environ.get('ECR_REGISTRY', '')}/{os.environ.get('PROJECT_NAME', 'kaloora')}/user-service:v1.0.0|g" /home/ubuntu/k8s/user-service.yaml
+          sed -i "s|image: diary-service:v1.0.0|image: {os.environ.get('ECR_REGISTRY', '')}/{os.environ.get('PROJECT_NAME', 'kaloora')}/diary-service:v1.0.0|g" /home/ubuntu/k8s/diary-service.yaml
+          sed -i "s|image: analytics-service:v1.0.0|image: {os.environ.get('ECR_REGISTRY', '')}/{os.environ.get('PROJECT_NAME', 'kaloora')}/analytics-service:v1.0.0|g" /home/ubuntu/k8s/analytics-service.yaml
+          
+          kubectl apply -f /home/ubuntu/k8s/ingress-nginx.yaml
+          kubectl apply -f /home/ubuntu/k8s/user-service.yaml
+          kubectl apply -f /home/ubuntu/k8s/diary-service.yaml
+          kubectl apply -f /home/ubuntu/k8s/analytics-service.yaml
+          kubectl apply -f /home/ubuntu/k8s/hpa-pdb.yaml || true
+          kubectl apply -f /home/ubuntu/k8s/ingress.yaml
+          
+          # 5. Rollout e popolamento seed
+          kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora || true
+          sleep 3
+          kubectl rollout status deployment diary-service -n kaloora --timeout=120s || true
+          POD=$(kubectl get pods -n kaloora -l app=diary-service -o jsonpath='{{.items[0].metadata.name}}' 2>/dev/null || true)
+          if [ -n "$POD" ]; then
+            kubectl exec -n kaloora "$POD" -- env PYTHONPATH=/app python /app/seeds/recipe_seed.py || true
+          fi
+          USER_EOF
+          """
+          
+          with open('/tmp/deploy.sh', 'w') as f:
+              f.write(script)
+          PY_EOF
 
-# 1. Aggiorna i manifesti K8s dal commit corrente
-mkdir -p /home/ubuntu/k8s
-echo "${K8S_TAR_B64}" | base64 -d | tar -xzf - -C /home/ubuntu/k8s/
-
-# 2. Namespace e NetworkPolicies
-kubectl apply -f /home/ubuntu/k8s/namespace.yaml
-kubectl apply -f /home/ubuntu/k8s/network-policy.yaml
-
-# 3. Secret ECR e applicativi
-kubectl create secret docker-registry ecr-secret -n kaloora --docker-server=${ECR_REGISTRY} --docker-username=AWS --docker-password="${ECR_PASS}" --dry-run=client -o yaml | kubectl apply -f -
-kubectl patch serviceaccount default -n kaloora -p "{\"imagePullSecrets\": [{\"name\": \"ecr-secret\"}]}" || true
-if [ -f /home/ubuntu/k8s/ecr-cronjob.yaml ]; then
-  kubectl apply -f /home/ubuntu/k8s/ecr-cronjob.yaml
-fi
-
-kubectl create secret generic kaloora-secrets -n kaloora \
-  --from-literal=jwt-secret="${JWT_SEC}" \
-  --from-literal=postgres-host="${PG_HOST}" \
-  --from-literal=postgres-password="${DB_P}" \
-  --from-literal=postgres-user=postgres \
-  --from-literal=postgres-db=userdb \
-  --from-literal=redis-host="${REDIS_HOST}" \
-  --from-literal=redis-auth-token="${REDIS_TOKEN}" \
-  --from-literal=sqs-queue-url="${SQS_URL}" \
-  --from-literal=aws-region=${{ env.AWS_REGION }} \
-  --from-literal=dynamodb-diary-table=kaloora-diary \
-  --from-literal=dynamodb-foods-table=kaloora-foods \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# 4. Aggiornamento immagini e applicazione componenti
-sed -i "s|image: user-service:v1.0.0|image: ${ECR_REGISTRY}/${{ env.PROJECT_NAME }}/user-service:v1.0.0|g" /home/ubuntu/k8s/user-service.yaml
-sed -i "s|image: diary-service:v1.0.0|image: ${ECR_REGISTRY}/${{ env.PROJECT_NAME }}/diary-service:v1.0.0|g" /home/ubuntu/k8s/diary-service.yaml
-sed -i "s|image: analytics-service:v1.0.0|image: ${ECR_REGISTRY}/${{ env.PROJECT_NAME }}/analytics-service:v1.0.0|g" /home/ubuntu/k8s/analytics-service.yaml
-
-kubectl apply -f /home/ubuntu/k8s/ingress-nginx.yaml
-kubectl apply -f /home/ubuntu/k8s/user-service.yaml
-kubectl apply -f /home/ubuntu/k8s/diary-service.yaml
-kubectl apply -f /home/ubuntu/k8s/analytics-service.yaml
-kubectl apply -f /home/ubuntu/k8s/hpa-pdb.yaml || true
-kubectl apply -f /home/ubuntu/k8s/ingress.yaml
-
-# 5. Rollout e popolamento seed
-kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora || true
-sleep 3
-kubectl rollout status deployment diary-service -n kaloora --timeout=120s || true
-POD=\$(kubectl get pods -n kaloora -l app=diary-service -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
-if [ -n "\$POD" ]; then
-  kubectl exec -n kaloora "\$POD" -- env PYTHONPATH=/app python /app/seeds/recipe_seed.py || true
-fi
-'
-EOF
-)
-          B64_SCRIPT=$(echo "$DEPLOY_SCRIPT" | base64 | tr -d '\n')
+          B64_SCRIPT=$(base64 < /tmp/deploy.sh | tr -d '\n')
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$CONTROL_PLANE_ID" \
