@@ -9,7 +9,6 @@ from config import PORT, CORS_ORIGIN
 from routes.foods import food_bp
 from routes.diary import diary_bp
 from routes.recipes import recipe_bp
-from seeds.recipe_seed import auto_seed_if_needed
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -20,12 +19,6 @@ CORS(app, resources={r"/api/*": {"origins": origins}})
 app.register_blueprint(food_bp)
 app.register_blueprint(diary_bp)
 app.register_blueprint(recipe_bp)
-
-# Auto-seed check al boot dell'applicazione (funziona sia con Gunicorn che con python app.py)
-try:
-    auto_seed_if_needed()
-except Exception as e:
-    print(f"Initial DynamoDB seed check: {e}")
 
 @app.route("/health", methods=["GET"])
 def health():

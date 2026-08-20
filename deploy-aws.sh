@@ -140,11 +140,22 @@ ECR_PASS="$5"
 AWS_AK="$6"
 AWS_SK="$7"
 
+echo '0. Verifica che i nodi Worker dell'\''ASG siano connessi e pronti...'
+for i in {1..60}; do
+  READY_NODES=$(kubectl get nodes --no-headers 2>/dev/null | grep -c " Ready" || echo "0")
+  if [ "$READY_NODES" -ge 2 ]; then
+    echo "  -> Nodi rilevati in stato Ready: $READY_NODES"
+    break
+  fi
+  echo "  -> In attesa dei nodi Worker... ($READY_NODES/2 pronti, tentativo $i/60)"
+  sleep 10
+done
+
 echo '1. Applicazione Namespace, LimitRange, Quota e NetworkPolicies...'
 kubectl apply -f /home/ubuntu/k8s/namespace.yaml
 kubectl apply -f /home/ubuntu/k8s/network-policy.yaml
 
-echo '2. Configurazione credenziali di autenticazione Amazon ECR...'
+echo '2. Configurazione credenziali di autenticazione Amazon ECR e CronJob di rinnovo...'
 if [ -n "$ECR_PASS" ] && [ -n "$REGISTRY" ]; then
   kubectl create secret docker-registry ecr-secret -n kaloora \
     --docker-server="$REGISTRY" \
@@ -152,6 +163,9 @@ if [ -n "$ECR_PASS" ] && [ -n "$REGISTRY" ]; then
     --docker-password="$ECR_PASS" \
     --dry-run=client -o yaml | kubectl apply -f -
   kubectl patch serviceaccount default -n kaloora -p '{"imagePullSecrets": [{"name": "ecr-secret"}]}' || true
+fi
+if [ -f /home/ubuntu/k8s/ecr-cronjob.yaml ]; then
+  kubectl apply -f /home/ubuntu/k8s/ecr-cronjob.yaml
 fi
 
 echo '3. Applicazione Secrets Database, SQS, Redis e credenziali AWS...'
@@ -183,12 +197,13 @@ kubectl apply -f /home/ubuntu/k8s/ingress.yaml
 
 echo '7. Rollout restart per caricare le nuove configurazioni...'
 kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora || true
+sleep 3
 
 echo '8. Popolamento automatico ricette e alimenti su DynamoDB...'
-kubectl rollout status deployment diary-service -n kaloora --timeout=90s || true
+kubectl rollout status deployment diary-service -n kaloora --timeout=120s || true
 POD=$(kubectl get pods -n kaloora -l app=diary-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 if [ -n "$POD" ]; then
-  kubectl exec -n kaloora "$POD" -- python seeds/recipe_seed.py || true
+  kubectl exec -n kaloora "$POD" -- env PYTHONPATH=/app python /app/seeds/recipe_seed.py || true
 fi
 
 echo '9. Stato dei Pod distribuiti:'

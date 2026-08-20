@@ -27,9 +27,17 @@ resource "aws_security_group" "k8s_nodes" {
     security_groups = [aws_security_group.alb.id]
   }
 
-  # Comunicazione completa tra i nodi del cluster (Kube API, etcd, Kubelet, Calico VXLAN/BGP)
+  # Comunicazione completa tra tutti i nodi e subnet della VPC (Kube API, etcd, Kubelet, Calico VXLAN/BGP)
   ingress {
-    description = "Inter-node cluster traffic"
+    description = "All VPC intra-cluster traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+  }
+
+  ingress {
+    description = "Inter-node self traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"

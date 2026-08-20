@@ -134,14 +134,16 @@ spec:
             httpGet:
               path: /health
               port: 5002
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 10
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /health
               port: 5002
-            initialDelaySeconds: 15
-            periodSeconds: 20
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
       volumes:
         - name: tmp-volume
           emptyDir: {}

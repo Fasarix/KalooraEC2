@@ -7,26 +7,28 @@
   tasks:
 
     # ── Hostname & Local Resolution ───────────────────────────────────────────
+    - name: Recupera l'IP privato del nodo (VPC)
+      shell: hostname -I | awk '{print $1}'
+      register: node_private_ip
+      changed_when: false
+
     - name: Imposta l'hostname del nodo coerente con l'inventario
       ansible.builtin.hostname:
         name: "{{ inventory_hostname }}"
 
-    - name: Assicura la risoluzione del hostname locale in /etc/hosts
+    - name: Assicura la risoluzione del hostname locale in /etc/hosts con IP privato
       ansible.builtin.lineinfile:
         path: /etc/hosts
-        line: "127.0.0.1 {{ inventory_hostname }}"
+        line: "{{ node_private_ip.stdout | trim }} {{ inventory_hostname }}"
         state: present
 
-    # ── Gestione servizi aggiornamento automatico Ubuntu ──────────────────────
-    - name: Disabilita apt-daily timers per evitare lock in background
-      systemd:
-        name: "{{ item }}"
-        state: stopped
-        enabled: false
-      loop:
-        - apt-daily.timer
-        - apt-daily-upgrade.timer
-      ignore_errors: true
+    # ── Ottimizzazione Rete APT (Forza IPv4 per evitare timeout di risoluzione) ─
+    - name: Forza IPv4 per APT per velocizzare i download
+      copy:
+        dest: /etc/apt/apt.conf.d/99force-ipv4
+        content: |
+          Acquire::ForceIPv4 "true";
+        mode: '0644'
 
     # ── Swap (Configura 2GB Swap per garantire stabilita e reattivita su t3.micro) ─
     - name: Verifica se il file di swap esiste gia
@@ -105,17 +107,28 @@
         - { key: net.bridge.bridge-nf-call-ip6tables, value: "1" }
         - { key: net.ipv4.ip_forward,                 value: "1" }
 
+    # ── Firewall & Iptables Configuration ─────────────────────────────────────
+    - name: Disabilita UFW firewall locale per evitare blocchi tra nodi e CNI
+      systemd:
+        name: ufw
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Assicura che le policy di default di iptables siano ACCEPT
+      command: iptables -P {{ item }} ACCEPT
+      loop:
+        - INPUT
+        - FORWARD
+        - OUTPUT
+      changed_when: false
+      ignore_errors: true
+
     - name: Applica immediatamente le regole sysctl del sistema
       command: sysctl --system
       changed_when: false
 
     # ── containerd ────────────────────────────────────────────────────────────
-    - name: Aggiorna la cache apt
-      apt:
-        update_cache: true
-        cache_valid_time: 3600
-        lock_timeout: 180
-
     - name: Installa containerd e pacchetti di supporto
       apt:
         name:
@@ -125,11 +138,27 @@
           - gnupg
           - containerd
           - conntrack       # Richiesto dai preflight check di kubeadm
+          - unzip
         state: present
+        update_cache: false
         lock_timeout: 180
         dpkg_options: 'force-confdef,force-confold'
       environment:
         DEBIAN_FRONTEND: noninteractive
+
+    - name: Verifica se AWS CLI v2 è già installato
+      command: aws --version
+      register: aws_cli_check
+      failed_when: false
+      changed_when: false
+
+    - name: Installa AWS CLI v2 se mancante sul nodo
+      shell: |
+        curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+        unzip -q -o /tmp/awscliv2.zip -d /tmp
+        /tmp/aws/install --update || true
+        rm -rf /tmp/aws /tmp/awscliv2.zip
+      when: aws_cli_check.rc != 0
 
     - name: Crea la directory di configurazione per containerd
       file:
@@ -173,22 +202,15 @@
           deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg]
           https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /
 
-    - name: Aggiorna la cache apt dopo l'aggiunta del repository Kubernetes
-      apt:
-        update_cache: true
-        lock_timeout: 180
-
     - name: Installa kubelet, kubeadm, kubectl
-      apt:
-        name:
-          - kubelet
-          - kubeadm
-          - kubectl
-        state: present
-        lock_timeout: 180
-        dpkg_options: 'force-confdef,force-confold'
-      environment:
-        DEBIAN_FRONTEND: noninteractive
+      shell: |
+        DEBIAN_FRONTEND=noninteractive apt-get update -y
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          -o Dpkg::Options::="--force-confdef" \
+          -o Dpkg::Options::="--force-confold" \
+          kubelet kubeadm kubectl
+      register: k8s_install_res
+      changed_when: "'Setting up kubelet' in k8s_install_res.stdout or 'Setting up kubeadm' in k8s_install_res.stdout"
 
     - name: Blocca l'aggiornamento automatico dei pacchetti Kubernetes (hold)
       dpkg_selections:

@@ -83,3 +83,24 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx_errors" {
     Name = "${var.project_name}-alb-5xx-alarm"
   }
 }
+
+# Allarme CPU Elevata per Auto Scaling Group dei Worker K8s
+resource "aws_cloudwatch_metric_alarm" "workers_asg_high_cpu" {
+  alarm_name          = "${var.project_name}-workers-asg-high-cpu"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 80
+  alarm_description   = "Allarme quando l'utilizzo medio CPU dei nodi Worker nell'ASG supera l'80%"
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.workers.name
+  }
+
+  tags = {
+    Name = "${var.project_name}-asg-cpu-alarm"
+  }
+}

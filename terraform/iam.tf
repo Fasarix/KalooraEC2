@@ -89,7 +89,9 @@ resource "aws_iam_policy" "kaloora_services_access" {
         Action = [
           "ssm:GetParameter",
           "ssm:GetParameters",
-          "ssm:GetParametersByPath"
+          "ssm:GetParametersByPath",
+          "ssm:PutParameter",
+          "ssm:DeleteParameter"
         ]
         Resource = "arn:aws:ssm:${var.aws_region}:*:parameter/${var.project_name}/*"
       }

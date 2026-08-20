@@ -35,13 +35,35 @@ variable "instance_type" {
 }
 
 variable "worker_count" {
-  description = "Numero di nodi worker EC2 da creare"
+  description = "Numero di nodi worker EC2 desiderati (alias per asg_desired_capacity)"
   type        = number
   default     = 2
 
   validation {
-    condition     = var.worker_count >= 1 && var.worker_count <= 5
-    error_message = "worker_count deve essere compreso tra 1 e 5."
+    condition     = var.worker_count >= 1 && var.worker_count <= 10
+    error_message = "worker_count deve essere compreso tra 1 e 10."
+  }
+}
+
+variable "asg_min_size" {
+  description = "Numero minimo di nodi worker nell'Auto Scaling Group"
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.asg_min_size >= 1 && var.asg_min_size <= 10
+    error_message = "asg_min_size deve essere compreso tra 1 e 10."
+  }
+}
+
+variable "asg_max_size" {
+  description = "Numero massimo di nodi worker nell'Auto Scaling Group"
+  type        = number
+  default     = 4
+
+  validation {
+    condition     = var.asg_max_size >= 1 && var.asg_max_size <= 10
+    error_message = "asg_max_size deve essere compreso tra 1 e 10."
   }
 }
 

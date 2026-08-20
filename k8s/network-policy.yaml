@@ -151,3 +151,43 @@ spec:
           protocol: TCP # AWS SQS (HTTPS)
         - port: 80
           protocol: TCP # EC2 Instance Metadata Service (IMDS)
+
+---
+# ── ECR Token Renewer CronJob ────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ecr-token-renewer-policy
+  namespace: kaloora
+spec:
+  podSelector:
+    matchLabels:
+      app: ecr-token-renewer
+  policyTypes:
+    - Egress
+  egress:
+    # CoreDNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # AWS APIs (ECR, STS on 443) & Kubernetes API Server (443 / 6443)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    # EC2 Instance Metadata Service (IMDSv2) per token IAM
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 80
+          protocol: TCP
+

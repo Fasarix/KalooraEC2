@@ -9,6 +9,27 @@
 
   tasks:
 
+    - name: Recupera l'IP privato reale del Control Plane (VPC)
+      shell: hostname -I | awk '{print $1}'
+      register: cp_private_ip
+      changed_when: false
+
+    - name: Verifica se il cluster esistente è allineato all'IP privato reale della VPC
+      shell: |
+        if [ -f /etc/kubernetes/admin.conf ] && ! grep -q "{{ cp_private_ip.stdout | trim }}" /etc/kubernetes/admin.conf; then
+          echo "reset_needed"
+        else
+          echo "ok"
+        fi
+      register: cluster_endpoint_check
+      changed_when: false
+
+    - name: Resetta il control plane se l'endpoint registrato non corrisponde all'IP privato
+      shell: |
+        kubeadm reset -f
+        rm -rf /etc/cni/net.d /etc/kubernetes/manifests /etc/kubernetes/admin.conf /var/lib/etcd /root/.kube /home/ubuntu/.kube
+      when: cluster_endpoint_check.stdout == "reset_needed"
+
     - name: Verifica se il control plane è già stato inizializzato
       stat:
         path: /etc/kubernetes/admin.conf
@@ -18,8 +39,9 @@
       command: >
         kubeadm init
         --pod-network-cidr={{ pod_network_cidr }}
-        --control-plane-endpoint={{ ansible_default_ipv4.address }}
-        --apiserver-cert-extra-sans={{ ansible_host }},{{ ansible_default_ipv4.address }}
+        --apiserver-advertise-address={{ cp_private_ip.stdout | trim }}
+        --control-plane-endpoint={{ cp_private_ip.stdout | trim }}
+        --apiserver-cert-extra-sans={{ cp_private_ip.stdout | trim }},127.0.0.1,{{ inventory_hostname }}
         --ignore-preflight-errors=NumCPU,Mem,Swap
       when: not kubeadm_init_done.stat.exists
       register: kubeadm_init_output
@@ -63,13 +85,35 @@
       environment:
         KUBECONFIG: /home/ubuntu/.kube/config
 
-    # ── Comando Join per i Worker ─────────────────────────────────────────────
-    - name: Genera il comando join per i nodi worker
-      command: kubeadm token create --print-join-command
+    - name: Attendi stabilizzazione API Server e CoreDNS post-Calico
+      become: false
+      command: kubectl get nodes
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: api_check
+      until: api_check.rc == 0
+      retries: 10
+      delay: 5
+      changed_when: false
+
+    # ── Comando Join Permanente & Pubblicazione su AWS SSM Parameter Store ───
+    - name: Genera il comando join permanente (--ttl 0) per i nodi worker dell'ASG
+      command: kubeadm token create --print-join-command --ttl 0 --description "Permanent join token for ASG workers"
       register: join_command_raw
       changed_when: false
 
-    - name: Salva il comando join sul controller locale per il playbook dei worker
+    - name: Pubblica il comando join su AWS SSM Parameter Store
+      command: >
+        aws ssm put-parameter
+        --name "/{{ project_name | default('kaloora') }}/k8s/join_command"
+        --type "SecureString"
+        --value "{{ join_command_raw.stdout }}"
+        --overwrite
+        --region "{{ aws_region }}"
+      become: false
+      changed_when: true
+
+    - name: Salva copia locale del comando join di backup
       copy:
         content: "{{ join_command_raw.stdout }}\n"
         dest: /tmp/k8s_join_command.sh
@@ -77,15 +121,37 @@
       delegate_to: localhost
       become: false
 
-    # ── Verifiche di sistema ──────────────────────────────────────────────────
-    - name: Verifica lo stato dei nodi (il control plane deve risultare Ready)
+    # ── Verifiche di sistema & Attesa dei Nodi Worker dell'ASG ────────────────
+    - name: Attendi che i nodi Worker dell'ASG effettuino il Self-Bootstrap e risultino Ready
       become: false
-      command: kubectl get nodes
+      command: kubectl get nodes --no-headers
       environment:
         KUBECONFIG: /home/ubuntu/.kube/config
-      register: nodes_output
+      register: nodes_check
+      until: (nodes_check.stdout_lines | length >= 3) and (nodes_check.stdout_lines | select('search', 'NotReady') | list | length == 0)
+      retries: 60
+      delay: 15
+      changed_when: false
+      ignore_errors: true
+
+    - name: Assegna la label del ruolo 'worker' a tutti i nodi non-control-plane
+      become: false
+      shell: |
+        for node in $(kubectl get nodes --no-headers | awk '{print $1}' | grep -v control-plane); do
+          kubectl label node "$node" node-role.kubernetes.io/worker=worker --overwrite || true
+        done
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
       changed_when: false
 
-    - name: Stampa lo stato del nodo Control Plane
+    - name: Stampa lo stato finale di tutti i nodi del cluster
+      become: false
+      command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: final_nodes_output
+      changed_when: false
+
+    - name: Report dello stato del cluster
       debug:
-        msg: "{{ nodes_output.stdout_lines }}"
+        msg: "{{ final_nodes_output.stdout_lines }}"

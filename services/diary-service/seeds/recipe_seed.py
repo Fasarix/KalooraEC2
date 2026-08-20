@@ -1,3 +1,9 @@
+import os
+import sys
+
+# Assicura che la cartella principale del servizio sia nel PYTHONPATH
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from database import foods_table, native_to_decimal
 
 # Function to seed 50 complete recipes with unique images, macros, ingredients, and instructions

@@ -17,6 +17,7 @@ workers
 
 [all:vars]
 aws_region=${aws_region}
+project_name=${project_name}
 ansible_ssh_private_key_file=${ssh_private_key}
 ansible_ssh_common_args=-o ProxyCommand="aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p --region ${aws_region}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 -o ServerAliveInterval=15 -o ServerAliveCountMax=5
 

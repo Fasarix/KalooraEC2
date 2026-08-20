@@ -22,21 +22,25 @@ output "control_plane_ssm_session_command" {
   value       = "aws ssm start-session --target ${aws_instance.control_plane.id} --region ${var.aws_region}"
 }
 
-output "worker_ids" {
-  description = "ID delle istanze EC2 dei nodi Worker per AWS SSM"
-  value       = [for w in aws_instance.workers : w.id]
+output "asg_name" {
+  description = "Nome dell'Auto Scaling Group dei nodi Worker"
+  value       = aws_autoscaling_group.workers.name
 }
 
-output "worker_public_ips" {
-  description = "IP pubblici dei nodi Worker Kubernetes su EC2"
-  value       = [for w in aws_instance.workers : w.public_ip]
+output "asg_arn" {
+  description = "ARN dell'Auto Scaling Group dei nodi Worker"
+  value       = aws_autoscaling_group.workers.arn
 }
 
-output "workers_ssm_session_commands" {
-  description = "Comandi AWS SSM Session Manager per accedere ai nodi Worker in modo sicuro"
-  value       = [for w in aws_instance.workers : "aws ssm start-session --target ${w.id} --region ${var.aws_region}"]
+output "launch_template_id" {
+  description = "ID del Launch Template per i nodi Worker"
+  value       = aws_launch_template.worker.id
 }
 
+output "launch_template_latest_version" {
+  description = "Ultima versione del Launch Template per i nodi Worker"
+  value       = aws_launch_template.worker.latest_version
+}
 
 # ── AWS Application Load Balancer (ALB) ────────────────────────────────────────
 

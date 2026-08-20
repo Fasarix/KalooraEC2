@@ -15,14 +15,15 @@
    └── /api/*     ──► [ AWS Application Load Balancer (ALB) ]
                             │ (Port 80 -> NodePort 30080)
                             ▼
-           [ Kubernetes Cluster su EC2 (Ubuntu 24.04 + Calico CNI) ]
-           ┌─────────────────────────────────────────────────────────┐
-           │  • Ingress Nginx Controller (NodePort: 30080)           │
-           │  • User Service (Node.js/Express, 2 Repliche, HPA)      │
-           │  • Diary Service (Python/Flask/Gunicorn, 2 Repliche, HPA)│
-           │  • Analytics Service (Node.js/Express, 2 Repliche, HPA) │
-           │  • Calico CNI (NetworkPolicy Enforcement L3/L4)         │
-           └─────────────────────────────────────────────────────────┘
+            [ Kubernetes Cluster su EC2 (Control Plane + Auto Scaling Group Workers) ]
+            ┌─────────────────────────────────────────────────────────┐
+            │  • EC2 Auto Scaling Group (Launch Template + SSM Join)  │
+            │  • Ingress Nginx Controller (NodePort: 30080)           │
+            │  • User Service (Node.js/Express, 2 Repliche, HPA)      │
+            │  • Diary Service (Python/Flask/Gunicorn, 2 Repliche, HPA)│
+            │  • Analytics Service (Node.js/Express, 2 Repliche, HPA) │
+            │  • Calico CNI (NetworkPolicy Enforcement L3/L4)         │
+            └─────────────────────────────────────────────────────────┘
                     │                │                     │
                     ▼                ▼                     ▼
              [ Amazon RDS ]   [ Amazon DynamoDB ]   [ Amazon SQS + DLQ ]
@@ -59,8 +60,7 @@ KalooraAWS/
 │   └── deploy.yml            # Workflow con scansioni SAST (Gitleaks, Semgrep, Checkov)
 ├── ansible/                  # Automazione del cluster Kubernetes con Ansible
 │   ├── 00-prerequisites.yml  # Configurazione Kernel, containerd e pacchetti K8s
-│   ├── 01-control-plane.yml  # Inizializzazione kubeadm, Calico CNI e join token
-│   ├── 02-workers.yml        # Join dei nodi worker e labeling ruoli
+│   ├── 01-control-plane.yml  # Inizializzazione kubeadm, Calico CNI e pubblicazione join token su SSM
 │   ├── ansible.cfg           # Configurazione Ansible
 │   ├── hosts.ini.example     # Esempio di inventario
 │   └── site.yml              # Playbook principale sequenziale
@@ -74,6 +74,7 @@ KalooraAWS/
 ├── k8s/                      # Manifesti Kubernetes Cloud-Native
 │   ├── namespace.yaml        # Namespace 'kaloora'
 │   ├── secret.yaml.example   # Template dei segreti di connessione
+│   ├── ecr-cronjob.yaml      # CronJob di rinnovo automatico del token ECR (ogni 6 ore)
 │   ├── ingress-nginx.yaml    # Ingress Nginx Controller v1.10.0 con NodePort 30080 dichiarativo
 │   ├── network-policy.yaml   # Politiche di isolamento della rete (Calico)
 │   ├── user-service.yaml     # Deployment & Service (NodePort/ClusterIP)
@@ -148,7 +149,7 @@ Il deployment dell'infrastruttura e dei microservizi si articola in **3 fasi aut
    terraform apply -auto-approve
    ```
 
-*Terraform creerà la VPC, le subnet Multi-AZ, i Security Group, le istanze EC2 con IMDSv2, i ruoli IAM, l'ALB, RDS PostgreSQL cifrato, DynamoDB on-demand, SQS con DLQ, ElastiCache Redis, S3, CloudFront OAC e genererà automaticamente `ansible/hosts.ini` e `k8s/secret.yaml`.*
+*Terraform creerà la VPC, le subnet Multi-AZ, i Security Group, l'EC2 Control Plane, il Launch Template e l'Auto Scaling Group (ASG) per i Worker, i ruoli IAM, l'ALB, RDS PostgreSQL cifrato, DynamoDB on-demand, SQS con DLQ, ElastiCache Redis, S3, CloudFront OAC e genererà automaticamente `ansible/hosts.ini` e `k8s/secret.yaml`.*
 
 ---
 
@@ -162,9 +163,8 @@ ansible-playbook -i ansible/hosts.ini ansible/site.yml
 ```
 
 #### Cosa fa Ansible:
-1. **`00-prerequisites.yml`**: Configura parametri kernel sysctl (`net.bridge.bridge-nf-call-iptables`), disabilita swap, installa **containerd** e la suite Kubernetes (**v1.31**).
-2. **`01-control-plane.yml`**: Inizializza il Control Plane con `kubeadm init` sull'IP privato VPC, configura `admin.conf` e distribuisce **Calico CNI** per abilitare le NetworkPolicies.
-3. **`02-workers.yml`**: Esegue il join automatico dei nodi worker via IP privato ed applica le label dei ruoli.
+1. **`00-prerequisites.yml`**: Configura parametri kernel sysctl (`net.bridge.bridge-nf-call-iptables`), swapfile, installa **containerd** e la suite Kubernetes (**v1.31**).
+2. **`01-control-plane.yml`**: Inizializza il Control Plane con `kubeadm init`, distribuisce **Calico CNI**, genera il token di join permanente (`--ttl 0`) e lo pubblica su **AWS SSM Parameter Store** (`/kaloora/k8s/join_command`). I nodi Worker dell'ASG effettuano automaticamente il bootstrap tramite cloud-init prelevando il token da SSM.
 
 ---
 

@@ -81,14 +81,9 @@ resource "aws_lb_target_group" "k8s_ingress" {
   }
 }
 
-# ── 3. Registrazione di TUTTI i nodi Worker nel Target Group ──────────────────
-
-resource "aws_lb_target_group_attachment" "workers" {
-  count            = var.worker_count
-  target_group_arn = aws_lb_target_group.k8s_ingress.arn
-  target_id        = aws_instance.workers[count.index].id
-  port             = 30080
-}
+# ── 3. Registrazione dei nodi Worker nel Target Group ─────────────────────────
+# NOTA: La registrazione dei nodi Worker nel Target Group (porta 30080) è gestita
+# dinamicamente dall'Auto Scaling Group (ASG) tramite la proprietà target_group_arns.
 
 # ── 4. Listener HTTP sull'ALB con Protezione Perimetrale X-Origin-Verify ───────
 
