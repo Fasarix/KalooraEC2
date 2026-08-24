@@ -13,7 +13,7 @@ resource "aws_key_pair" "kaloora_key" {
 
 resource "aws_instance" "control_plane" {
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.instance_type
+  instance_type          = var.control_plane_instance_type
   subnet_id              = aws_subnet.public_1.id
   vpc_security_group_ids = [aws_security_group.k8s_nodes.id]
   iam_instance_profile   = aws_iam_instance_profile.k8s_node_profile.name
@@ -45,7 +45,7 @@ resource "aws_instance" "control_plane" {
 resource "aws_launch_template" "worker" {
   name_prefix   = "${var.project_name}-worker-lt-"
   image_id      = data.aws_ami.ubuntu.id
-  instance_type = var.instance_type
+  instance_type = var.worker_instance_type
   key_name      = local.has_ssh_key ? aws_key_pair.kaloora_key[0].key_name : null
   ebs_optimized = true
 

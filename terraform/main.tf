@@ -19,7 +19,7 @@ terraform {
   # 1. Esegui 'terraform apply' nella cartella 'terraform/backend_setup/' per creare il bucket S3 e la tabella DynamoDB
   # 2. Scommenta e popola il blocco seguente con il nome del bucket creato:
   backend "s3" {
-    bucket         = "kaloora-tf-state-lbyery"
+    bucket         = "kaloora-tf-state-dfv8hu"
     key            = "cluster/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true

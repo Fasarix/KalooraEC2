@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "=========================================================================="
-echo "   [Kaloora] Deploy su Cluster Kubernetes AWS EC2 + S3/CloudFront"
+echo "   [Kaloora] Deploy su Cluster Kubernetes AWS EC2 e S3/CloudFront"
 echo "=========================================================================="
 
 # ── FASE 1: Recupero informazioni da Terraform ────────────────────────────────
@@ -212,9 +212,6 @@ kubectl get pods -n ingress-nginx
 EOF
 
 echo ""
-echo "=========================================================================="
-echo "🎉 Deployment AWS completato con successo!"
-echo "=========================================================================="
-echo "Accedi all'applicazione web tramite:"
-echo "👉 ${CLOUDFRONT_URL}"
+echo "Deployment completato con successo!"
+echo "Cloudfront URL: ${CLOUDFRONT_URL}"
 echo ""

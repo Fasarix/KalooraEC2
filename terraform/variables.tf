@@ -28,8 +28,20 @@ variable "environment" {
 
 # ── EC2 & Kubernetes Configuration ─────────────────────────────────────────────
 
+variable "control_plane_instance_type" {
+  description = "Tipo di istanza EC2 per il Control Plane Kubernetes"
+  type        = string
+  default     = "t3.small"
+}
+
+variable "worker_instance_type" {
+  description = "Tipo di istanza EC2 per i nodi Worker Kubernetes"
+  type        = string
+  default     = "t3.micro"
+}
+
 variable "instance_type" {
-  description = "Tipo di istanza EC2 per il cluster Kubernetes (t3.micro eleggibile Free Tier)"
+  description = "Tipo di istanza EC2 di fallback / default per il cluster Kubernetes"
   type        = string
   default     = "t3.micro"
 }
