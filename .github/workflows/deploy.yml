@@ -164,12 +164,15 @@ jobs:
           # Impacchetta i manifesti K8s aggiornati dal commit corrente
           export K8S_TAR_B64=$(tar -czf - -C k8s . | base64 | tr -d '\n')
           export ECR_REGISTRY ECR_PASS JWT_SEC DB_P REDIS_TOKEN PG_HOST REDIS_HOST SQS_URL
+          export AWS_AK="${{ secrets.AWS_ACCESS_KEY_ID }}"
+          export AWS_SK="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
 
           echo "2. Preparazione ed invio script di deploy al Control Plane ($CONTROL_PLANE_ID)..."
           python3 - << 'PY_EOF'
           import os
-          
-          script = f"""su - ubuntu << 'USER_EOF'
+          import textwrap
+
+          script = textwrap.dedent(f"""su - ubuntu << 'USER_EOF'
           export KUBECONFIG=/home/ubuntu/.kube/config
           
           # 1. Aggiorna i manifesti K8s dal commit corrente
@@ -180,7 +183,7 @@ jobs:
           kubectl apply -f /home/ubuntu/k8s/namespace.yaml
           kubectl apply -f /home/ubuntu/k8s/network-policy.yaml
           
-          # 3. Secret ECR e applicativi
+          # 3. Secret ECR e applicativi (incluse credenziali AWS)
           kubectl create secret docker-registry ecr-secret -n kaloora --docker-server={os.environ.get('ECR_REGISTRY', '')} --docker-username=AWS --docker-password="{os.environ.get('ECR_PASS', '')}" --dry-run=client -o yaml | kubectl apply -f -
           kubectl patch serviceaccount default -n kaloora -p '{{"imagePullSecrets": [{{"name": "ecr-secret"}}]}}' || true
           if [ -f /home/ubuntu/k8s/ecr-cronjob.yaml ]; then
@@ -197,6 +200,8 @@ jobs:
             --from-literal=redis-auth-token="{os.environ.get('REDIS_TOKEN', '')}" \\
             --from-literal=sqs-queue-url="{os.environ.get('SQS_URL', '')}" \\
             --from-literal=aws-region={os.environ.get('AWS_REGION', 'us-east-1')} \\
+            --from-literal=aws-access-key-id="{os.environ.get('AWS_AK', '')}" \\
+            --from-literal=aws-secret-access-key="{os.environ.get('AWS_SK', '')}" \\
             --from-literal=dynamodb-diary-table=kaloora-diary \\
             --from-literal=dynamodb-foods-table=kaloora-foods \\
             --dry-run=client -o yaml | kubectl apply -f -
@@ -215,14 +220,16 @@ jobs:
           
           # 5. Rollout e popolamento seed
           kubectl rollout restart deployment user-service diary-service analytics-service -n kaloora || true
-          sleep 3
-          kubectl rollout status deployment diary-service -n kaloora --timeout=120s || true
-          POD=$(kubectl get pods -n kaloora -l app=diary-service -o jsonpath='{{.items[0].metadata.name}}' 2>/dev/null || true)
+          kubectl rollout status deployment diary-service -n kaloora --timeout=180s || true
+          kubectl wait --namespace kaloora --for=condition=ready pod -l app=diary-service --timeout=60s || true
+          
+          POD=$(kubectl get pods -n kaloora -l app=diary-service --field-selector=status.phase=Running -o jsonpath='{{.items[0].metadata.name}}' 2>/dev/null || true)
           if [ -n "$POD" ]; then
+            echo "Esecuzione recipe_seed.py sul pod $POD..."
             kubectl exec -n kaloora "$POD" -- env PYTHONPATH=/app python /app/seeds/recipe_seed.py || true
           fi
           USER_EOF
-          """
+          """)
           
           with open('/tmp/deploy.sh', 'w') as f:
               f.write(script)
