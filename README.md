@@ -12,7 +12,7 @@ Prima di avviare il deployment, assicurarsi di disporre dei seguenti strumenti i
 1. **AWS CLI v2**: configurata con credenziali dotate di privilegi sufficienti per la creazione delle risorse (VPC, EC2, RDS, DynamoDB, SQS, IAM, CloudFront, S3, ECR):
    ```bash
    aws configure
-   # Inserire AWS Access Key ID, Secret Access Key e Regione di default (es. us-east-1)
+   # Inserire AWS Access Key ID, Secret Access Key, Regione di default (es. us-east-1) e output format (json)
    ```
 2. **Terraform** ($\ge 1.5.0$): per il provisioning dichiarativo dell'infrastruttura.
 3. **Ansible** ($\ge 2.12$): per la configurazione del sistema operativo e l'installazione di Kubernetes.
