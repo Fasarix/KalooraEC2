@@ -1,238 +1,168 @@
-# 🥗 Kaloora — Cloud-Native Nutrition & Fitness Tracker su AWS
+# Guida Operativa Passo-Passo: KalooraEC2 (Cluster Kubernetes Self-Managed su EC2)
 
-**Kaloora** è una piattaforma web distribuita per il tracciamento calorico, nutrizionale e delle attività fisiche. L'architettura è interamente migrata e ottimizzata per **Amazon Web Services (AWS)** seguendo i moderni paradigmi di **Microservizi Disaccoppiati**, **Event-Driven Architecture (EDA)**, **Managed/Serverless Services**, **Infrastructure as Code (Terraform)** e **DevSecOps (CI/CD)**.
-
----
-
-## 📸 Schemi Architetturali
-
-```
-[ Utente / Browser ]
-        │
-        ▼
-[ Amazon CloudFront CDN ] (PriceClass_100, OAC, Security Headers)
-   ├── /*         ──► [ Amazon S3 Bucket ] (Frontend SPA Statico: HTML5/CSS3/Vanilla JS)
-   └── /api/*     ──► [ AWS Application Load Balancer (ALB) ]
-                            │ (Port 80 -> NodePort 30080)
-                            ▼
-            [ Kubernetes Cluster su EC2 (Control Plane + Auto Scaling Group Workers) ]
-            ┌─────────────────────────────────────────────────────────┐
-            │  • EC2 Auto Scaling Group (Launch Template + SSM Join)  │
-            │  • Ingress Nginx Controller (NodePort: 30080)           │
-            │  • User Service (Node.js/Express, 2 Repliche, HPA)      │
-            │  • Diary Service (Python/Flask/Gunicorn, 2 Repliche, HPA)│
-            │  • Analytics Service (Node.js/Express, 2 Repliche, HPA) │
-            │  • Calico CNI (NetworkPolicy Enforcement L3/L4)         │
-            └─────────────────────────────────────────────────────────┘
-                    │                │                     │
-                    ▼                ▼                     ▼
-             [ Amazon RDS ]   [ Amazon DynamoDB ]   [ Amazon SQS + DLQ ]
-             (PostgreSQL 15)  (Pay-Per-Request)      (Event-Driven Bus)
-             (Encrypted gp3)  (Diari & Alimenti)           │
-                                                           ▼
-                                                 [ Amazon ElastiCache ]
-                                                 (Redis 7 In-Memory Cache)
-```
+## 1. Obiettivo dell'Infrastruttura
+Questa guida descrive la procedura operativa per effettuare il provisioning completo, la configurazione e il rilascio dell'applicazione Kaloora sull'infrastruttura **`KalooraEC2`**. 
+In questo ambiente, il calcolo è affidato a un cluster Kubernetes self-managed (istallato tramite Kubeadm su istanze Amazon EC2 Ubuntu 24.04), mentre i dati, la messaggistica, la cache e la distribuzione del frontend sono delegati ai servizi gestiti di AWS (RDS PostgreSQL, DynamoDB, SQS, ElastiCache Redis, S3 e CloudFront).
 
 ---
 
-## 🏛️ Architettura dei Componenti & Servizi AWS
+## 2. Prerequisiti di Sistema
+Prima di avviare il deployment, assicurarsi di disporre dei seguenti strumenti installati e configurati sulla propria macchina di lavoro:
 
-| Modulo / Servizio | Tecnologia | Servizio AWS / Hosting | Responsabilità & Dettagli |
-| :--- | :--- | :--- | :--- |
-| **Frontend SPA** | HTML5, CSS3 Glassmorphism, JS ES6+ | **Amazon S3 + CloudFront CDN** | Hosting statico privato con OAC, fallback SPA su `/index.html`, HTTP Security Headers, caching edge a bassa latenza. |
-| **Reverse Proxy / Gateway** | AWS ALB + Ingress Nginx | **Application Load Balancer** | Instradamento centralizzato del traffico `/api/*` verso il target group dei worker K8s sulla NodePort `30080`. |
-| **User Service** | Node.js 20, Express, pg | **Kubernetes su EC2 + Amazon RDS** | Autenticazione JWT, profilo utente, calcolo BMR/TDEE con formula Mifflin-St Jeor; persistenza su **PostgreSQL 15 (RDS)** con encryption at-rest (KMS) e in-transit forzata (`rds.force_ssl=1`). |
-| **Diary Service** | Python 3.11, Flask, boto3 | **Kubernetes su EC2 + Amazon DynamoDB** | Gestione diario giornaliero, pasti, idratazione, ricette e alimenti con validazione input; persistenza NoSQL su **DynamoDB** (Pay-Per-Request + PITR) e pubblicazione eventi su **Amazon SQS**. |
-| **Analytics Service** | Node.js 20, Express, @aws-sdk | **Kubernetes su EC2 + ElastiCache** | Consumer SQS con long polling ed exponential backoff, calcolo trend nutrizionali settimanali/mensili e caching protetto su **ElastiCache Redis 7 Replication Group** (TLS in-transit + KMS at-rest). |
-| **Event Bus & DLQ** | AWS SQS | **Amazon SQS + Dead Letter Queue** | Disaccoppiamento asincrono affidabile degli eventi applicativi con crittografia at-rest gestita (SSE-SQS). |
-| **Secrets & Config** | SSM Parameter Store | **AWS Systems Manager** | Archiviazione cifrata dei segreti applicativi (`SecureString`) e generazione dinamica del secret K8s. |
-| **Container Registry** | Docker Multi-Stage | **Amazon ECR** | Repository con scansione automatica delle vulnerabilità e **Lifecycle Policy** (conservazione max 10 immagini / scadenza untagged). |
-| **Monitoring & Alarms** | CloudWatch Metrics | **Amazon CloudWatch** | Monitoraggio proattivo e allarmi su CPU EC2, metriche RDS e codici 5XX sull'ALB. |
-
----
-
-## 📂 Struttura del Repository
-
-```
-KalooraAWS/
-├── .github/workflows/        # Pipeline CI/CD GitHub Actions (DevSecOps + Build + Deploy)
-│   └── deploy.yml            # Workflow con scansioni SAST (Gitleaks, Semgrep, Checkov)
-├── ansible/                  # Automazione del cluster Kubernetes con Ansible
-│   ├── 00-prerequisites.yml  # Configurazione Kernel, containerd e pacchetti K8s
-│   ├── 01-control-plane.yml  # Inizializzazione kubeadm, Calico CNI e pubblicazione join token su SSM
-│   ├── ansible.cfg           # Configurazione Ansible
-│   ├── hosts.ini.example     # Esempio di inventario
-│   └── site.yml              # Playbook principale sequenziale
-├── docs/                     # Documentazione tecnica
-│   ├── eks_vs_ec2_comparison.md # Analisi comparativa EKS vs EC2 Self-Managed
-│   └── openapi.yaml          # Specifica OpenAPI 3.0 dei microservizi REST
-├── frontend/                 # Single Page Application Frontend
-│   ├── css/                  # Design System Glassmorphism e Dark Mode
-│   ├── js/                   # Logica applicativa, client API, routing
-│   └── index.html            # Entrypoint WebApp
-├── k8s/                      # Manifesti Kubernetes Cloud-Native
-│   ├── namespace.yaml        # Namespace 'kaloora'
-│   ├── secret.yaml.example   # Template dei segreti di connessione
-│   ├── ecr-cronjob.yaml      # CronJob di rinnovo automatico del token ECR (ogni 6 ore)
-│   ├── ingress-nginx.yaml    # Ingress Nginx Controller v1.10.0 con NodePort 30080 dichiarativo
-│   ├── network-policy.yaml   # Politiche di isolamento della rete (Calico)
-│   ├── user-service.yaml     # Deployment & Service (NodePort/ClusterIP)
-│   ├── diary-service.yaml    # Deployment & Service (NodePort/ClusterIP)
-│   ├── analytics-service.yaml# Deployment & Service (NodePort/ClusterIP)
-│   ├── hpa-pdb.yaml          # Horizontal Pod Autoscaler & PodDisruptionBudget
-│   └── ingress.yaml          # Regole di routing Ingress Nginx per l'ALB
-├── services/                 # Microservizi Backend
-│   ├── analytics-service/    # Analytics & SQS Consumer (Node.js/Express)
-│   ├── diary-service/        # Diario, Ricette con GSI/Redis & DynamoDB/SQS (Python/Flask)
-│   └── user-service/         # Autenticazione & RDS PostgreSQL (Node.js/Express)
-├── terraform/                # Infrastruttura come Codice (AWS Provider)
-│   ├── backend_setup/        # Modulo bootstrap per Bucket S3 Remote State & DynamoDB Lock Table
-│   ├── main.tf               # Providers, Data sources, Remote Backend S3 + DynamoDB Lock
-│   ├── vpc.tf                # VPC, Subnet pubbliche e private (Multi-AZ) e Gateway Endpoints
-│   ├── security_groups.tf    # Security Groups con regole restrittive (ALB, Nodi, RDS, Redis)
-│   ├── ec2_instances.tf      # EC2 Control Plane & Workers con IMDSv2 hop limit = 2
-│   ├── iam.tf                # IAM Roles & Instance Profiles (SSM, DynamoDB, SQS, ECR)
-│   ├── load_balancer.tf      # Application Load Balancer & Target Group (NodePort 30080)
-│   ├── managed_services.tf   # RDS Postgres, DynamoDB (con GSI), SQS, ElastiCache, ECR, SSM
-│   ├── frontend_cdn.tf       # Bucket S3, CloudFront OAC e Security Headers
-│   ├── cloudwatch.tf         # Allarmi CloudWatch per EC2, RDS e ALB
-│   ├── variables.tf          # Parametrizzazione ambiente, opzioni SSH/SSM e credenziali
-│   ├── outputs.tf            # Endpoint, URI e comandi di connessione AWS SSM Session Manager
-│   └── terraform.tfvars      # Variabili di configurazione (100% Free Tier Compatible)
-├── deploy-aws.sh             # Script di deploy applicativo end-to-end su AWS
-├── LICENSE                   # Licenza MIT
-└── README.md                 # Documentazione del progetto
-```
-
----
-
-## 🛠️ Prerequisiti
-
-- **AWS CLI v2** configurata con credenziali dotate di permessi IAM adeguati (`aws configure`).
-- **Terraform** (>= 1.5.0).
-- **Ansible** (>= 2.12).
-- **SSH Key Pair** (generata di default in `terraform/id_ed25519` o personalizzata).
-- **kubectl** installato localmente (opzionale per amministrazione remota).
-
----
-
-## 🚀 Guida al Deployment su AWS (IaC & Automazione)
-
-Il deployment dell'infrastruttura e dei microservizi si articola in **3 fasi automatizzate**:
-
-```
-┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
-│   1. TERRAFORM  │ ────► │   2. ANSIBLE    │ ────► │ 3. DEPLOY-AWS   │
-│ (Provisioning   │       │ (Setup K8s &    │       │ (Deploy Frontend│
-│  Risorse AWS)   │       │  Calico CNI)    │       │  & Microservizi)│
-└─────────────────┘       └─────────────────┘       └─────────────────┘
-```
-
----
-
-### Passo 1: Provisioning dell'Infrastruttura con Terraform
-
-1. Spostati nella cartella `terraform/`:
+1. **AWS CLI v2**: configurata con credenziali dotate di privilegi sufficienti per la creazione delle risorse (VPC, EC2, RDS, DynamoDB, SQS, IAM, CloudFront, S3, ECR):
    ```bash
-   cd terraform
-   terraform init
+   aws configure
+   # Inserire AWS Access Key ID, Secret Access Key e Regione di default (es. us-east-1)
+   ```
+2. **Terraform** ($\ge 1.5.0$): per il provisioning dichiarativo dell'infrastruttura.
+3. **Ansible** ($\ge 2.12$): per la configurazione del sistema operativo e l'installazione di Kubernetes.
+4. **Docker**: attivo localmente per la build delle immagini multi-architettura (`linux/amd64`).
+5. **OpenSSH Client**: per la generazione e l'utilizzo delle chiavi di accesso ai nodi.
+
+---
+
+## 3. Fase 1: Provisioning dell'Infrastruttura con Terraform
+
+### 3.1 Setup del Remote State Backend (S3 + DynamoDB Locking)
+Prima di effettuare il provisioning dell'infrastruttura, è necessario istanziare il bucket S3 e la tabella DynamoDB per il distributed state locking di Terraform:
+
+1. Entrare nella cartella di setup del backend:
+   ```bash
+   cd KalooraEC2/terraform/backend_setup
    ```
 
-2. Genera una chiave SSH per l'accesso ai nodi (se non già presente):
+2. Inizializzare ed applicare il provisioning del backend:
+   ```bash
+   terraform init
+   terraform apply -auto-approve
+   ```
+
+3. L'output mostrerà il nome del bucket S3 generato (es. `kaloora-tf-state-xxxxxx`) e della tabella DynamoDB (`kaloora-tf-locks`).
+
+4. Tornare nella cartella `terraform/` principale:
+   ```bash
+   cd ..
+   ```
+
+5. Modificare il file `main.tf` nel blocco `backend "s3"` e aggiungere il nome del bucket appena creato:
+   ```hcl
+   terraform {
+     backend "s3" {
+       bucket         = "<NOME_BUCKET_GENERATO>"
+       key            = "cluster/terraform.tfstate"
+       region         = "us-east-1"
+       encrypt        = true
+       dynamodb_table = "kaloora-tf-locks"
+     }
+   }
+   ```
+
+### 3.2 Provisioning delle Risorse del Cluster
+
+1. Generare la coppia di chiavi SSH che verrà associata alle istanze EC2:
    ```bash
    ssh-keygen -t ed25519 -f id_ed25519 -N ""
    ```
 
-3. Esegui il deployment delle risorse su AWS:
+2. Inizializzare Terraform per scaricare i provider necessari ed agganciare il backend remoto:
+   ```bash
+   terraform init
+   ```
+
+3. Verificare il piano di esecuzione ed applicare il provisioning:
    ```bash
    terraform apply -auto-approve
    ```
 
-*Terraform creerà la VPC, le subnet Multi-AZ, i Security Group, l'EC2 Control Plane, il Launch Template e l'Auto Scaling Group (ASG) per i Worker, i ruoli IAM, l'ALB, RDS PostgreSQL cifrato, DynamoDB on-demand, SQS con DLQ, ElastiCache Redis, S3, CloudFront OAC e genererà automaticamente `ansible/hosts.ini` e `k8s/secret.yaml`.*
+   **Cosa fa questa fase:**
+   - Crea la VPC dedicata (`10.0.0.0/16`) distribuita su 2 Availability Zone con Subnet Pubbliche e Private.
+   - Crea i Gateway VPC Endpoints per S3 e DynamoDB.
+   - Definisce i Security Groups a catena (ALB $\rightarrow$ Nodi K8s $\rightarrow$ RDS/ElastiCache).
+   - Crea le risorse di persistenza gestita (RDS PostgreSQL, DynamoDB On-Demand, SQS + DLQ, ElastiCache Redis).
+   - Crea il bucket S3 e la distribuzione CloudFront con Origin Access Control (OAC) e header di verifica `X-Origin-Verify`.
+   - Crea l'istanza EC2 Control Plane e l'Auto Scaling Group dei nodi Worker con Launch Template (IMDSv2 obbligatorio).
+   - Genera automaticamente i file locali `ansible/hosts.ini` e `k8s/secret.yaml` contenenti gli endpoint e le credenziali generate.
 
 ---
 
-### Passo 2: Configurazione del Cluster Kubernetes con Ansible
+## 4. Fase 2: Configurazione del Cluster K8s con Ansible
 
-Dalla radice del progetto, esegui i playbook Ansible:
+Una volta che le istanze EC2 sono avviate e raggiungibili:
 
-```bash
-cd ..
-ansible-playbook -i ansible/hosts.ini ansible/site.yml
-```
+1. Tornare nella cartella radice del progetto:
+   ```bash
+   cd ..
+   ```
 
-#### Cosa fa Ansible:
-1. **`00-prerequisites.yml`**: Configura parametri kernel sysctl (`net.bridge.bridge-nf-call-iptables`), swapfile, installa **containerd** e la suite Kubernetes (**v1.31**).
-2. **`01-control-plane.yml`**: Inizializza il Control Plane con `kubeadm init`, distribuisce **Calico CNI**, genera il token di join permanente (`--ttl 0`) e lo pubblica su **AWS SSM Parameter Store** (`/kaloora/k8s/join_command`). I nodi Worker dell'ASG effettuano automaticamente il bootstrap tramite cloud-init prelevando il token da SSM.
+2. Eseguire il playbook Ansible principale:
+   ```bash
+   ansible-playbook -i ansible/hosts.ini ansible/site.yml
+   ```
 
----
-
-### Passo 3: Deployment dei Microservizi e Frontend (`deploy-aws.sh`)
-
-Esegui lo script orchestratore di deployment:
-
-```bash
-./deploy-aws.sh
-```
-
-#### Fasi eseguite dallo script:
-1. **Recupero Endpoint**: Estrae gli output da Terraform (IP Control Plane, Bucket S3, CloudFront URL/DistID).
-2. **Deploy Frontend**: Sincronizza i file statici su S3 e richiede l'invalidazione della cache CloudFront.
-3. **Deploy K8s**: Trasferisce i manifesti sul Control Plane ed applica Namespace, Secrets, NetworkPolicies, Ingress Nginx (con patch fissa su NodePort `30080`), User Service, Diary Service, Analytics Service e regole HPA/PDB.
-
-Al termine del deployment, l'applicazione sarà accessibile all'URL pubblico di CloudFront:
-```
-👉 https://dxxxxxxxxxxxx.cloudfront.net
-```
+   **Cosa fa questa fase:**
+   - **`00-prerequisites.yml`**: Configura lo swapfile da 2GB con swappiness controllata, attiva i moduli kernel `overlay` e `br_netfilter`, imposta i parametri di rete sysctl, installa `containerd` (configurato con `SystemdCgroup = true`) e installa i pacchetti `kubelet`, `kubeadm`, `kubectl` v1.31.
+   - **`01-control-plane.yml`**: Inizializza il Control Plane con `kubeadm init`, installa il CNI Calico v3.28.0 per la rete dei pod, genera un token di join permanente e lo carica in modo sicuro su AWS SSM Parameter Store (`/kaloora/k8s/join_command`).
+   - I nodi Worker dell'Auto Scaling Group, al loro avvio, eseguono lo script di user data (`worker_bootstrap.sh.tpl`), interrogano SSM Parameter Store, recuperano il comando ed effettuano il join automatico al cluster.
 
 ---
 
-## 🛡️ Sicurezza & Conformità DevSecOps
+## 5. Fase 3: Deployment dei Microservizi e Frontend
 
-- **Crittografia Completa (At-Rest & In-Transit)**:
-  - **RDS PostgreSQL**: Storage cifrato via AWS KMS (`gp3 20GB`), in-transit forzato tramite Parameter Group (`rds.force_ssl = 1`) e connessione pool `pg` con SSL/TLS.
-  - **ElastiCache Redis**: Gestito tramite Replication Group con crittografia at-rest KMS, crittografia in-transit (TLSv1.2), autenticazione Redis AUTH (`auth_token`) e connessioni Node.js con `socket: { tls: true }`.
-  - **Amazon S3**: Crittografia server-side SSE-S3 (`AES256`), blocco accessi pubblici, policy che nega richieste non-HTTPS (`aws:SecureTransport: "false"`) e accesso riservato a CloudFront OAC con SigV4.
-  - **Amazon SQS + DLQ**: Crittografia at-rest abilitata (SSE-SQS) e trasporto su HTTPS.
-  - **Amazon EBS (EC2)**: Crittografia abilitata su tutti i volumi `root_block_device`.
-  - **CloudFront CDN**: Forzatura HTTPS (`redirect-to-https`) su tutti i path, policy Security Headers completa (CSP, HSTS, X-Frame-Options DENY, X-Content-Type-Options nosniff) e header di verifica `X-Origin-Verify` verso l'ALB.
-- **Isolamento di Rete & VPC Endpoints**:
-  - RDS ed ElastiCache risiedono in Subnet Private Multi-AZ non accessibili da Internet.
-  - **Gateway VPC Endpoints** per S3 e DynamoDB per instradamento interno a costo zero.
-  - Security Group EC2: porte NodePort `30000-32767` accessibili unicamente dall'ALB Security Group.
-  - Pod Kubernetes isolati tramite **Calico CNI NetworkPolicies** con ingress selectors specifici per il namespace `ingress-nginx`.
-- **Hardening dei Container**:
-  - Container eseguiti come utente non-root (`UID/GID 10001`).
-  - `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` e drop di tutte le Linux capabilities (`drop: ALL`).
-- **Pipeline CI/CD DevSecOps**:
-  - Scansione secret con **Gitleaks** (bloccante).
-  - Scansione statica del codice (SAST) con **Semgrep**.
-  - Scansione IaC di Terraform e manifesti Kubernetes con **Checkov**.
+Per automatizzare la compilazione delle immagini, il caricamento dei file statici e l'applicazione dei manifesti Kubernetes:
 
----
+1. Dalla cartella radice di `KalooraEC2`, eseguire lo script orchestratore:
+   ```bash
+   ./deploy-aws.sh
+   ```
 
-## 💰 Ottimizzazione dei Costi AWS
-
-L'infrastruttura è stata architettata per minimizzare i costi fissi:
-- **Nessun NAT Gateway provisionato**: I nodi EC2 usano l'Internet Gateway per il traffico outbound, evitando ~$32-35/mese per gateway.
-- **Risorse Serverless On-Demand**: DynamoDB e SQS operano in modalità Pay-Per-Request ($0 di costo a riposo).
-- **CloudFront PriceClass_100**: Limitato a Nord America ed Europa per il minor costo per GB.
-- **Teardown Pulito**: Tutti i bucket S3 e registri ECR sono configurati con `force_destroy = true` e RDS con `skip_final_snapshot = true` per garantire una cancellazione rapida e totale con `terraform destroy`.
+   **Sequenza di operazioni eseguite dallo script:**
+   1. **Recupero parametri**: Estrae gli URL di ECR, il nome del bucket S3, l'ID di distribuzione CloudFront e l'IP del Control Plane dai Terraform outputs.
+   2. **Deploy Frontend**: Sincronizza i file statici (`frontend/`) sul bucket S3 ed esegue l'invalidazione della cache di CloudFront (`/*`).
+   3. **Build & Push Immagini**: Compila le immagini Docker per architettura `linux/amd64` (`user-service`, `diary-service`, `analytics-service`), effettua il login al registry Amazon ECR e carica le immagini con tag `v1.0.0`.
+   4. **Sincronizzazione Manifesti**: Trasferisce i manifesti Kubernetes sul Control Plane tramite SSH incapsulato in AWS SSM Session Manager (ProxyCommand), garantendo l'accesso sicuro senza esporre la porta 22.   
+   5. **Applicazione Manifesti K8s**:
+      - Crea il namespace `kaloora`.
+      - Applica i segreti e il CronJob per il rinnovo automatico del token ECR ogni 6 ore.
+      - Applica le Network Policies Calico (`default-deny` e whitelist di traffico).
+      - Applica i Deployment e i Service dei 3 microservizi.
+      - Installa l'Ingress Controller Nginx ed applica la risorsa Ingress (in ascolto su NodePort 30080 per il traffico proveniente dall'ALB).
+      - Esegue il seeding iniziale degli alimenti e delle ricette nel database DynamoDB.
 
 ---
 
-## 🧹 Teardown dell'Infrastruttura
+## 6. Fase 4: Validazione Funzionale e Test degli Endpoint
 
-Per distruggere tutte le risorse allocate su AWS ed azzerare i costi:
+Al termine dell'esecuzione, lo script mostrerà l'URL pubblico di CloudFront (es. `https://d1xxxxxxxxxxxx.cloudfront.net`).
 
-```bash
-cd terraform
-terraform destroy -auto-approve
-```
+1. **Test dell'Health Check:**
+   ```bash
+   curl -I https://<CLOUDFRONT_DOMAIN>/healthz
+   # Risposta attesa: HTTP/2 200 OK
+   ```
+
+2. **Accesso all'Applicazione:**
+   - Aprire l'URL `https://<CLOUDFRONT_DOMAIN>` in un browser web.
+   - Verificare il corretto caricamento dell'interfaccia utente.
+
+3. **Verifica dei Flussi Applicativi:**
+   - **Registrazione & Login**: Creare un nuovo account utente con i parametri antropometrici e verificare il corretto calcolo metabolico (BMR e TDEE).
+   - **Diario Alimentare**: Inserire un pasto nel diario e verificare la persistenza immediata su DynamoDB.
+   - **Flusso Asincrono & Cache**: Verificare che l'evento venga inoltrato alla coda SQS, consumato da `analytics-service` e che le statistiche nutrizionali vengano memorizzate nella cache Redis.
 
 ---
 
-## 📄 Licenza
+## 7. Fase 5: Procedura di Teardown e Azzeramento Risorse
 
-Questo progetto è distribuito sotto licenza **MIT**. Consulta il file [LICENSE](LICENSE) per ulteriori dettagli.
+Per distruggere tutte le risorse allocate su AWS ed evitare costi indesiderati:
+
+1. Posizionarsi nella cartella Terraform:
+   ```bash
+   cd KalooraEC2/terraform
+   ```
+
+2. Eseguire il comando di distruzione:
+   ```bash
+   terraform destroy -auto-approve
+   ```
+
+*Nota*: I bucket S3 e i repository ECR sono configurati con `force_destroy = true` e il database RDS con `skip_final_snapshot = true` per garantire una deallocazione pulita e senza blocchi.
