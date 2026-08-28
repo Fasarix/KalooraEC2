@@ -12,6 +12,7 @@ const initDb = async () => {
       height DOUBLE PRECISION NOT NULL,
       weight DOUBLE PRECISION NOT NULL,
       activity_level VARCHAR(50) NOT NULL,
+      goal VARCHAR(50) DEFAULT 'maintenance',
       daily_calories INTEGER NOT NULL,
       target_carbs INTEGER NOT NULL,
       target_protein INTEGER NOT NULL,
@@ -37,6 +38,7 @@ const initDb = async () => {
   for (let i = 1; i <= maxRetries; i++) {
     try {
       await pool.query(queryUsers);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal VARCHAR(50) DEFAULT 'maintenance';`);
       await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fasting_protocol VARCHAR(50) DEFAULT 'none';`);
       await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled_meals TEXT DEFAULT 'breakfast,lunch,dinner,snack';`);
       await pool.query(queryWeightHistory);
@@ -44,7 +46,7 @@ const initDb = async () => {
       console.log('Database tables "users" and "weight_history" initialized with indexes.');
       return;
     } catch (err) {
-      console.error('Error initializing database (attempt %d/%d): %s', i, maxRetries, err.message);
+      console.error(`Error initializing database (attempt ${i}/${maxRetries}):`, err.message);
       if (i === maxRetries) throw err;
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }

@@ -70,6 +70,7 @@ export function setupAuthListeners() {
       const height = document.getElementById('reg-height').value;
       const weight = document.getElementById('reg-weight').value;
       const activityLevel = document.getElementById('reg-activity').value;
+      const goal = document.getElementById('reg-goal') ? document.getElementById('reg-goal').value : 'maintenance';
 
       if (!name || !email || !password || !age || !height || !weight) {
         showToast('Compila tutti i campi obbligatori (Nome, Email, Password, Età, Altezza e Peso).', 'warning');
@@ -87,7 +88,7 @@ export function setupAuthListeners() {
           body: JSON.stringify({
             name, email, password, age: parseInt(age),
             gender, height: parseFloat(height), weight: parseFloat(weight),
-            activityLevel
+            activityLevel, goal
           })
         });
 
@@ -129,6 +130,9 @@ export function populateSettingsForm() {
   document.getElementById('sett-weight').value = u.weight;
   document.getElementById('sett-activity').value = u.activity_level;
   
+  const goalSelect = document.getElementById('sett-goal');
+  if (goalSelect) goalSelect.value = u.goal || 'maintenance';
+
   const fastSelect = document.getElementById('sett-fasting');
   if (fastSelect) fastSelect.value = u.fasting_protocol || 'none';
 
@@ -217,6 +221,7 @@ export function setupSettingsForm() {
       height: parseFloat(document.getElementById('sett-height').value),
       weight: parseFloat(document.getElementById('sett-weight').value),
       activityLevel: document.getElementById('sett-activity').value,
+      goal: document.getElementById('sett-goal') ? document.getElementById('sett-goal').value : 'maintenance',
       fastingProtocol: document.getElementById('sett-fasting').value,
       enabledMeals
     };

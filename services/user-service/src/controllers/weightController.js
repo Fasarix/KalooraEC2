@@ -26,7 +26,7 @@ const recordWeight = async (req, res) => {
     const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
     if (userRes.rows.length > 0) {
       const u = userRes.rows[0];
-      const targets = calculateTargets(numWeight, u.height, u.age, u.gender, u.activity_level);
+      const targets = calculateTargets(numWeight, u.height, u.age, u.gender, u.activity_level, u.goal || 'maintenance');
 
       await pool.query(
         `UPDATE users SET weight = $1, daily_calories = $2, target_carbs = $3, target_protein = $4, target_fat = $5 WHERE id = $6`,
@@ -86,7 +86,7 @@ const updateWeightEntry = async (req, res) => {
       const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
       if (userRes.rows.length > 0) {
         const u = userRes.rows[0];
-        const targets = calculateTargets(latestW, u.height, u.age, u.gender, u.activity_level);
+        const targets = calculateTargets(latestW, u.height, u.age, u.gender, u.activity_level, u.goal || 'maintenance');
         await pool.query(
           `UPDATE users SET weight = $1, daily_calories = $2, target_carbs = $3, target_protein = $4, target_fat = $5 WHERE id = $6`,
           [latestW, targets.calories, targets.carbs, targets.protein, targets.fat, req.user.id]
@@ -117,7 +117,7 @@ const deleteWeightEntry = async (req, res) => {
       const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
       if (userRes.rows.length > 0) {
         const u = userRes.rows[0];
-        const targets = calculateTargets(latestW, u.height, u.age, u.gender, u.activity_level);
+        const targets = calculateTargets(latestW, u.height, u.age, u.gender, u.activity_level, u.goal || 'maintenance');
         await pool.query(
           `UPDATE users SET weight = $1, daily_calories = $2, target_carbs = $3, target_protein = $4, target_fat = $5 WHERE id = $6`,
           [latestW, targets.calories, targets.carbs, targets.protein, targets.fat, req.user.id]

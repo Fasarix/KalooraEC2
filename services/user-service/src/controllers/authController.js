@@ -5,7 +5,7 @@ const { JWT_SECRET } = require('../config/env');
 const { calculateTargets } = require('../services/macroCalculator');
 
 const register = async (req, res) => {
-  const { email, password, name, age, gender, height, weight, activityLevel, fastingProtocol, enabledMeals } = req.body;
+  const { email, password, name, age, gender, height, weight, activityLevel, goal, fastingProtocol, enabledMeals } = req.body;
 
   if (!email || !password || !name || !age || !gender || !height || !weight || !activityLevel) {
     return res.status(400).json({ error: 'All fields are required' });
@@ -17,20 +17,21 @@ const register = async (req, res) => {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
+    const userGoal = goal || 'maintenance';
     const hashedPassword = await bcrypt.hash(password, 10);
-    const targets = calculateTargets(parseFloat(weight), parseFloat(height), parseInt(age), gender, activityLevel);
+    const targets = calculateTargets(parseFloat(weight), parseFloat(height), parseInt(age), gender, activityLevel, userGoal);
     const fProtocol = fastingProtocol || 'none';
     const eMeals = enabledMeals || 'breakfast,lunch,dinner,snack';
 
     const insertQuery = `
-      INSERT INTO users (email, password, name, age, gender, height, weight, activity_level, daily_calories, target_carbs, target_protein, target_fat, fasting_protocol, enabled_meals)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-      RETURNING id, email, name, age, gender, height, weight, activity_level, daily_calories, target_carbs, target_protein, target_fat, fasting_protocol, enabled_meals;
+      INSERT INTO users (email, password, name, age, gender, height, weight, activity_level, goal, daily_calories, target_carbs, target_protein, target_fat, fasting_protocol, enabled_meals)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING id, email, name, age, gender, height, weight, activity_level, goal, daily_calories, target_carbs, target_protein, target_fat, fasting_protocol, enabled_meals;
     `;
 
     const result = await pool.query(insertQuery, [
       email, hashedPassword, name, parseInt(age), gender,
-      parseFloat(height), parseFloat(weight), activityLevel,
+      parseFloat(height), parseFloat(weight), activityLevel, userGoal,
       targets.calories, targets.carbs, targets.protein, targets.fat,
       fProtocol, eMeals
     ]);
@@ -81,6 +82,7 @@ const login = async (req, res) => {
         height: user.height,
         weight: user.weight,
         activityLevel: user.activity_level,
+        goal: user.goal || 'maintenance',
         dailyCalories: user.daily_calories,
         targetCarbs: user.target_carbs,
         targetProtein: user.target_protein,

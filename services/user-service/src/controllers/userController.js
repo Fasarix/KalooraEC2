@@ -5,7 +5,7 @@ const { calculateTargets } = require('../services/macroCalculator');
 const getProfile = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, name, age, gender, height, weight, activity_level, daily_calories, target_carbs, target_protein, target_fat, fasting_protocol, enabled_meals FROM users WHERE id = $1',
+      'SELECT id, email, name, age, gender, height, weight, activity_level, goal, daily_calories, target_carbs, target_protein, target_fat, fasting_protocol, enabled_meals FROM users WHERE id = $1',
       [req.user.id]
     );
 
@@ -21,7 +21,7 @@ const getProfile = async (req, res) => {
 };
 
 const updateProfile = async (req, res) => {
-  const { email, name, password, age, gender, height, weight, activityLevel, fastingProtocol, enabledMeals } = req.body;
+  const { email, name, password, age, gender, height, weight, activityLevel, goal, fastingProtocol, enabledMeals } = req.body;
 
   try {
     const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
@@ -43,23 +43,24 @@ const updateProfile = async (req, res) => {
     const newHeight = height ? parseFloat(height) : existingUser.height;
     const newWeight = weight ? parseFloat(weight) : existingUser.weight;
     const newActivity = activityLevel || existingUser.activity_level;
+    const newGoal = goal || existingUser.goal || 'maintenance';
     const newFasting = fastingProtocol !== undefined ? fastingProtocol : existingUser.fasting_protocol;
     const newMeals = enabledMeals !== undefined ? enabledMeals : existingUser.enabled_meals;
 
-    const targets = calculateTargets(newWeight, newHeight, newAge, newGender, newActivity);
+    const targets = calculateTargets(newWeight, newHeight, newAge, newGender, newActivity, newGoal);
 
     const updateQuery = `
       UPDATE users 
       SET email = $1, password = $2, name = $3, age = $4, gender = $5, height = $6, weight = $7, 
-          activity_level = $8, daily_calories = $9, target_carbs = $10, target_protein = $11, target_fat = $12,
-          fasting_protocol = $13, enabled_meals = $14
-      WHERE id = $15
-      RETURNING id, email, name, age, gender, height, weight, activity_level, daily_calories, target_carbs, target_protein, target_fat, fasting_protocol, enabled_meals;
+          activity_level = $8, goal = $9, daily_calories = $10, target_carbs = $11, target_protein = $12, target_fat = $13,
+          fasting_protocol = $14, enabled_meals = $15
+      WHERE id = $16
+      RETURNING id, email, name, age, gender, height, weight, activity_level, goal, daily_calories, target_carbs, target_protein, target_fat, fasting_protocol, enabled_meals;
     `;
 
     const updatedResult = await pool.query(updateQuery, [
       newEmail, newPasswordHash, newName, newAge, newGender,
-      newHeight, newWeight, newActivity, targets.calories,
+      newHeight, newWeight, newActivity, newGoal, targets.calories,
       targets.carbs, targets.protein, targets.fat, newFasting, newMeals, req.user.id
     ]);
 

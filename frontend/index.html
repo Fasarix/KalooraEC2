@@ -18,7 +18,7 @@
   <div id="auth-container" class="glass-panel">
     <div class="auth-box">
       <img src="img/kaloora_logo.png" alt="Kaloora Logo" class="brand-logo-img-lg">
-      <h1 class="logo-text">Kaloora v1</h1>
+      <h1 class="logo-text">Kaloora</h1>
       <p class="subtitle">Traccia le tue calorie, ricette e salute in modo dinamico</p>
 
       <div class="tabs">
@@ -86,6 +86,14 @@
             <option value="active">Molto Attivo (esercizio intenso quotidiano)</option>
           </select>
         </div>
+        <div class="input-group">
+          <label for="reg-goal">Obiettivo Personale</label>
+          <select id="reg-goal">
+            <option value="lose_weight">Perdere Peso (Deficit calorico)</option>
+            <option value="maintenance" selected>Mantenimento Peso (Normocalorica)</option>
+            <option value="gain_mass">Aumentare Massa Muscolare (Surplus calorico)</option>
+          </select>
+        </div>
         <button type="submit" class="btn-primary">Registrati</button>
       </form>
     </div>
@@ -142,7 +150,10 @@
           
           <!-- Card 1: Daily Calorie Wheel -->
           <div class="glass-panel summary-card">
-            <h2 class="summary-title">Riepilogo Giornaliero</h2>
+            <div class="summary-header-row">
+              <h2 class="summary-title">Riepilogo Giornaliero</h2>
+              <span id="user-goal-badge" class="goal-badge" title="Obiettivo Nutrizionale">🎯 Mantenimento</span>
+            </div>
             <div class="calorie-progress-container">
               <div class="calorie-circle">
                 <svg width="170" height="170">
@@ -420,6 +431,14 @@
                 <option value="sedentary">Sedentario (poco o nessun esercizio)</option>
                 <option value="moderate">Moderato (esercizio 3-5 giorni/settimana)</option>
                 <option value="active">Molto Attivo (esercizio intenso quotidiano)</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="sett-goal">Obiettivo Personale</label>
+              <select id="sett-goal">
+                <option value="lose_weight">Perdere Peso (Deficit calorico)</option>
+                <option value="maintenance">Mantenimento Peso (Normocalorica)</option>
+                <option value="gain_mass">Aumentare Massa Muscolare (Surplus calorico)</option>
               </select>
             </div>
           </div>

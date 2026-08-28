@@ -613,6 +613,25 @@ export function renderDashboard() {
   const effectiveTarget = target.daily_calories + (stats.exerciseCalories || 0);
   const eaten = stats.calories;
 
+  // Goal badge update
+  const goalBadge = document.getElementById('user-goal-badge');
+  if (goalBadge) {
+    const userGoal = (target.goal || 'maintenance').toLowerCase();
+    if (userGoal === 'lose_weight' || userGoal === 'perdere_peso' || userGoal === 'cut') {
+      goalBadge.innerText = '🎯 Perdere Peso';
+      goalBadge.className = 'goal-badge goal-lose';
+      goalBadge.title = 'Obiettivo: Deficit calorico (-500 kcal)';
+    } else if (userGoal === 'gain_mass' || userGoal === 'mettere_massa' || userGoal === 'bulk') {
+      goalBadge.innerText = '💪 Mettere Massa';
+      goalBadge.className = 'goal-badge goal-gain';
+      goalBadge.title = 'Obiettivo: Surplus calorico (+350 kcal)';
+    } else {
+      goalBadge.innerText = '⚖️ Mantenimento';
+      goalBadge.className = 'goal-badge goal-maintain';
+      goalBadge.title = 'Obiettivo: Normocalorica (TDEE)';
+    }
+  }
+
   document.getElementById('val-food-cals').innerText = eaten;
   document.getElementById('val-sport-cals').innerText = `+${stats.exerciseCalories || 0}`;
 

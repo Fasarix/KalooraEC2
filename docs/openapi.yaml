@@ -32,6 +32,8 @@ paths:
                 gender: { type: string, enum: [male, female, other] }
                 height: { type: number }
                 weight: { type: number }
+                activityLevel: { type: string, enum: [sedentary, moderate, active] }
+                goal: { type: string, enum: [lose_weight, maintenance, gain_mass], default: maintenance }
       responses:
         '201':
           description: Utente registrato con successo
